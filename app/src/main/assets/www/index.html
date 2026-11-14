@@ -245,6 +245,14 @@
     <div class="side-h"><i data-i="truckw"></i><div><b>ศรีมงคล 99</b><div class="small">ศูนย์ควบคุม · Admin Control</div></div></div>
     <button data-at="ov" aria-pressed="true"><i data-i="home"></i>ภาพรวม (ติดตามรถ)</button>
     <button data-at="al"><i data-i="alert"></i>เหตุแจ้งเตือน <span class="badge" id="alBadge" hidden>0</span></button>
+    <div class="side-sec">สถานะรถ</div>
+    <button data-at="st-standby"><i data-i="flag"></i>รถสแตนบาย <span class="cnt" id="cnt-standby">0</span></button>
+    <button data-at="st-loading"><i data-i="dock"></i>รถกำลังขึ้นงาน <span class="cnt" id="cnt-loading">0</span></button>
+    <button data-at="st-enroute"><i data-i="play"></i>รถกำลังออกเดินทาง <span class="cnt" id="cnt-enroute">0</span></button>
+    <button data-at="st-arrived"><i data-i="pin"></i>รถถึงปลายทาง <span class="cnt" id="cnt-arrived">0</span></button>
+    <button data-at="st-done"><i data-i="check"></i>รถจบงานแล้ว <span class="cnt" id="cnt-done">0</span></button>
+    <button data-at="fleet"><i data-i="truck"></i>ข้อมูลจบงานรายคัน</button>
+    <div class="side-sec">งานและระบบ</div>
     <button data-at="jobs"><i data-i="list"></i>รายการงาน</button>
     <button data-at="done"><i data-i="check"></i>งานที่จบแล้ว (35 วัน)</button>
     <button data-at="ev"><i data-i="clock"></i>ประวัติเหตุการณ์ (Event)</button>
@@ -277,6 +285,14 @@
       </div>
 
       <div id="atAl" class="card" hidden></div>
+      <div id="atSt" class="stack" hidden>
+        <div class="st-head" id="stHead"></div>
+        <div class="stack" id="stList"></div>
+      </div>
+      <div id="atFleet" class="stack" hidden>
+        <div class="card pad"><div class="row between" style="flex-wrap:wrap"><b class="sec">ข้อมูลการจบงานรายคัน</b><span class="small muted">ย้อนหลัง 35 วัน · แตะเพื่อดูทุกงานของคันนั้น</span></div></div>
+        <div class="stack" id="fleetList"></div>
+      </div>
       <div id="atJobs" class="card" hidden></div>
       <div id="atEv" class="card pad" hidden><ul class="tl" id="evList"></ul></div>
 

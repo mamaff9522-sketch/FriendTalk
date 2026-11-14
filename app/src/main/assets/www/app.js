@@ -902,6 +902,10 @@ function renderAdmin(){
   document.querySelectorAll('.side [data-at]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.at===aTab)));
   $('atOv').hidden = aTab!=='ov'; $('atAl').hidden = aTab!=='al'; $('atJobs').hidden = aTab!=='jobs';
   $('atEv').hidden = aTab!=='ev'; $('atUsers').hidden = aTab!=='users'; $('atSet').hidden = aTab!=='set'; $('atDone').hidden = aTab!=='done';
+  $('atSt').hidden = !aTab.startsWith('st-'); $('atFleet').hidden = aTab!=='fleet';
+  STATUS_PAGES.forEach(g => { const el = $('cnt-'+g.key); if (el) el.textContent = ids.filter(id => g.match(S.trucks[id])).length; });
+  if (aTab.startsWith('st-')) renderStatusPage(aTab.slice(3), sorted);
+  if (aTab==='fleet'){ startDoneListener(); renderFleet(); }
   if (aTab==='done'){ startDoneListener(); renderDone(); }
   alertSound(alerts);
 
@@ -1182,6 +1186,65 @@ $('asgGo').onclick = async () => {
   finally { $('asgGo').disabled = false; }
 };
 document.addEventListener('click', e => { const b = e.target.closest('[data-assign]'); if (b){ e.stopPropagation(); openAssign(b.dataset.assign); } });
+
+/* ===== status pages: one page per truck status ===== */
+const STATUS_PAGES = [
+  {key:'standby', title:'รถสแตนบาย', sub:'รวมรถที่ได้รับงานแล้ว รอสแตนบาย', icon:'flag', color:'#1f5fd6', match: t => t.status==='standby' || t.status==='assigned'},
+  {key:'loading', title:'รถกำลังขึ้นงาน', sub:'หัว-หางเข้าช่อง กำลังขึ้นสินค้า', icon:'dock', color:'#f07d18', match: t => t.status==='loading'},
+  {key:'enroute', title:'รถกำลังออกเดินทาง', sub:'กำลังวิ่งไปปลายทาง', icon:'play', color:'#1f9d50', match: t => t.status==='enroute'},
+  {key:'arrived', title:'รถถึงปลายทาง', sub:'ถึงแล้ว รอจบงาน', icon:'pin', color:'#1546a6', match: t => t.status==='arrived'},
+  {key:'done', title:'รถจบงานแล้ว', sub:'ว่าง รอแอดมินมอบหมายงานใหม่', icon:'check', color:'#1b2d57', match: t => !t.status || t.status==='done' || t.status==='idle'},
+];
+function kv2(label, val){ return `<div class="kv2"><span>${label}</span><b>${val}</b></div>`; }
+function renderStatusPage(key, sorted){
+  const g = STATUS_PAGES.find(x => x.key === key) || STATUS_PAGES[0];
+  const list = sorted.filter(id => g.match(S.trucks[id]));
+  $('stHead').style.background = g.color;
+  $('stHead').innerHTML = `${ico(g.icon)}<div><b>${g.title}</b><span class="small" style="opacity:.85">${g.sub}</span></div><span class="n">${list.length}</span>`;
+  if (!list.length){ $('stList').innerHTML = '<div class="card empty">ไม่มีรถในสถานะนี้ตอนนี้</div>'; return; }
+  $('stList').innerHTML = list.map(id => {
+    const t = S.trucks[id], al = isAlert(t), on = online(t), route = hasAssignedJob(t) ? `${esc(t.originName||'–')} → <b>${esc(t.destName)}</b>` : '';
+    let facts = '';
+    if (key==='standby') facts = kv2(t.status==='assigned' ? 'ได้รับงานเมื่อ' : 'สแตนบายเมื่อ', fmtDT(t.status==='assigned' ? t.assignedAt : t.standbyAt) + (t.status==='assigned' ? '' : ` <span class="small muted">(${durTxt(mins(t.standbyAt))})</span>`)) + kv2('นัดถึงปลายทาง', t.etaAt ? fmtDT(t.etaAt) : '–');
+    if (key==='loading') facts = kv2('หัวเข้าช่อง', t.headIn ? fmtT(t.headIn) : '–') + kv2('หางเข้าช่อง', t.tailIn ? fmtT(t.tailIn) : '–') + kv2('รอขึ้นงานมาแล้ว', durTxt(mins(Math.min(t.headIn||Date.now(), t.tailIn||Date.now())))) + kv2('นัดถึงปลายทาง', t.etaAt ? fmtDT(t.etaAt) : '–');
+    if (key==='enroute') facts = kv2('ออกเดินทาง', t.departAt ? fmtT(t.departAt) + ` <span class="small muted">(${durTxt(mins(t.departAt))})</span>` : '–') + kv2('ความเร็วตอนนี้', t.moving ? `${Math.round(t.speed||0)} กม./ชม.` : 'จอดอยู่') + kv2('นัดถึงปลายทาง', t.etaAt ? fmtDT(t.etaAt) + (isLate(t) ? ' <span style="color:var(--red)">เลยนัด</span>' : '') : '–') + kv2('GPS ล่าสุด', t.gpsAt ? agoTxt(t.gpsAt) : '–');
+    if (key==='arrived') facts = kv2('ถึงปลายทาง', fmtDT(t.arriveAt)) + kv2('เวลาวิ่งจริง', t.departAt && t.arriveAt ? durShort(t.arriveAt - t.departAt) : '–') + kv2('รอจบงานมาแล้ว', durTxt(mins(t.arriveAt))) + kv2('น้ำมันงานนี้', fuelOf(t).length ? `${num(fuelOf(t).reduce((a,f)=>a+(+f.liters||0),0))} ลิตร` : '–');
+    if (key==='done') facts = kv2('จบงานล่าสุด', t.doneAt ? fmtDT(t.doneAt) : '–') + kv2('งานล่าสุด', esc(t.lastJob || '–')) + kv2('ว่างมาแล้ว', t.doneAt ? durTxt(mins(t.doneAt)) : '–') + kv2('GPS ล่าสุด', t.gpsAt ? agoTxt(t.gpsAt) : '–');
+    const acts = `<button class="btn btn-ghost" data-goto="${id}">${ico('pin')}ดูบนแผนที่</button>`
+      + (key==='done' ? `<button class="btn btn-orange" data-assign="${id}">${ico('list')}มอบหมายงาน</button>` : `<button class="btn btn-orange" data-ring="${id}">${ico('bell')}กดกริ่ง</button>`)
+      + (t.phone ? `<a class="btn btn-green" href="${telHref(t.phone)}" data-tel="${esc(t.phone)}">${ico('phone')}โทร</a>` : '');
+    return `<div class="stc${al?' alert':''}">
+      <div class="top"><span class="dot ${on?'on':''}"></span><div class="grow"><b class="pl">${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span>${route?`<div class="small">${route}</div>`:''}</div>${al?`<span class="chip c-red">${esc(alertText(t))}</span>`:`<span class="chip ${on?'c-green':''}">${on?'ออนไลน์':'ออฟไลน์'}</span>`}</div>
+      <div class="body">${facts}</div><div class="acts">${acts}</div></div>`; }).join('');
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-ring]'); if (r){ sendCmd(r.dataset.ring, {type:'ring'}); return; }
+  const tl = e.target.closest('[data-tel]'); if (tl && A){ e.preventDefault(); call('openUrl', telHref(tl.dataset.tel)); }
+});
+
+/* ===== completed-job summary per truck ===== */
+function renderFleet(){
+  const ids = Object.keys(S.trucks).sort((a,b)=>(S.trucks[a].plate||'').localeCompare(S.trucks[b].plate||'','th'));
+  if (!ids.length){ $('fleetList').innerHTML = '<div class="card empty">ยังไม่มีรถ</div>'; return; }
+  $('fleetList').innerHTML = ids.map(id => {
+    const t = S.trucks[id], js = doneJobs.filter(j => j.truck === id);
+    const timed = js.filter(j => j.onTime === true || j.onTime === false), ok = timed.filter(j => j.onTime).length;
+    const L = js.reduce((a,j)=>a+(+j.fuelL||0),0), B = js.reduce((a,j)=>a+(+j.fuelB||0),0);
+    const runs = js.filter(j => j.departAt && j.arriveAt && j.arriveAt >= j.departAt).map(j => j.arriveAt - j.departAt);
+    const avg = runs.length ? runs.reduce((a,b)=>a+b,0) / runs.length : 0;
+    const last = js[0];
+    return `<div class="stc">
+      <div class="top"><div class="avatar" style="width:40px;height:40px">${ico('driver')}</div><div class="grow"><b class="pl">${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span></div><span class="chip ${(ST[t.status]||ST.idle).c}">${(ST[t.status]||ST.idle).t}</span></div>
+      <div class="body">
+        ${kv2('งานที่จบ (35 วัน)', `${js.length} งาน`)}
+        ${kv2('ถึงตรงเวลา', timed.length ? `${ok}/${timed.length} งาน` : '–')}
+        ${kv2('น้ำมันรวม', L ? `${num(L)} ลิตร${B?`<div class="small muted">${num(B)} บาท</div>`:''}` : '–')}
+        ${kv2('เวลาวิ่งเฉลี่ยต่องาน', avg ? durShort(avg) : '–')}
+        <div class="kv2" style="grid-column:span 2"><span>งานล่าสุด</span><b>${last ? `${esc(last.originName||'–')} → ${esc(last.destName||'–')} <span class="small muted">· จบ ${fmtDT(last.doneAt)}</span>` : '–'}</b></div>
+      </div>
+      <div class="acts"><button class="btn btn-navy" data-fleet="${id}"${js.length?'':' disabled'}>${ico('list')}ดูงานที่จบทั้งหมดของคันนี้</button></div></div>`; }).join('');
+}
+document.addEventListener('click', e => { const f = e.target.closest('[data-fleet]'); if (f){ aTab = 'done'; renderAdmin(); $('dnRange').value = '35'; $('dnTruck').value = f.dataset.fleet; renderDone(); window.scrollTo({top:0}); } });
 
 /* "x seconds ago" that ticks every second for the selected truck */
 function agoTxt(ms){ const s = Math.max(0, Math.round((Date.now()-ms)/1000)); return s < 60 ? `${s} วินาทีที่แล้ว` : s < 3600 ? `${Math.floor(s/60)} นาทีที่แล้ว` : `${fmtT(ms)}`; }

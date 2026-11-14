@@ -27,7 +27,7 @@ h1,h2,h3{margin:0;line-height:1.25}
 i[data-i]{display:inline-flex;width:22px;height:22px;flex:none} i[data-i] svg{width:100%;height:100%}
 
 /* buttons */
-.btn{border:0;border-radius:11px;min-height:46px;padding:10px 14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.14)}
+.btn{text-decoration:none;border:0;border-radius:11px;min-height:46px;padding:10px 14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.14)}
 .btn i[data-i]{width:22px;height:22px}
 .btn-lg{min-height:54px;font-size:17px;border-radius:13px}
 .btn-sm{min-height:34px;padding:5px 10px;font-size:13px}
@@ -180,6 +180,10 @@ textarea.input{min-height:84px;resize:vertical}
 .side-h b{font-size:18px}
 .side>button{border:0;background:none;color:#dfe8fb;text-align:left;display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;font-weight:600;font-size:15px}
 .side>button[aria-pressed="true"]{background:var(--orange);color:#fff}
+.side-sec{font-size:11.5px;font-weight:700;color:#9fb3dd;padding:12px 12px 2px;letter-spacing:.3px}
+.cnt{margin-left:auto;background:rgba(255,255,255,.16);color:#fff;border-radius:999px;font-size:12px;min-width:24px;height:22px;padding:0 7px;display:inline-grid;place-items:center}
+.side>button[aria-pressed="true"] .cnt{background:rgba(255,255,255,.3)}
+.side>button{padding:9px 12px!important;font-size:14.5px!important}
 .badge{background:var(--red);color:#fff;border-radius:999px;font-size:12px;min-width:22px;height:22px;padding:0 6px;display:inline-grid;place-items:center;margin-left:auto}
 .amain{flex:1;min-width:0;display:flex;flex-direction:column}
 .ahead{position:sticky;top:0;z-index:15;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:calc(10px + var(--safe-t)) 16px 10px}
@@ -281,6 +285,23 @@ textarea.input{min-height:84px;resize:vertical}
 .hjob .fact{background:var(--s2);border-radius:10px;padding:7px 10px}
 .hjob .fact span{display:block;font-size:12px;color:var(--muted)}
 .hjob .fact b{font-size:15px}
+
+/* status pages */
+.st-head{display:flex;align-items:center;gap:12px;color:#fff;border-radius:var(--r);padding:14px 16px;box-shadow:var(--sh)}
+.st-head i{width:34px;height:34px}
+.st-head b{font-size:19px;display:block}
+.st-head .n{margin-left:auto;font-size:30px;font-weight:800}
+.stc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.stc .top{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+.stc .top b.pl{font-size:17px}
+.stc .body{padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stc .kv2{background:var(--s2);border-radius:10px;padding:7px 10px}
+.stc .kv2 span{display:block;font-size:12px;color:var(--muted)}
+.stc .kv2 b{font-size:14.5px}
+.stc .acts{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 12px}
+.stc .acts .btn{flex:1;min-height:40px;font-size:13.5px;padding:6px 8px}
+.stc .acts .btn i{width:18px;height:18px}
+.stc.alert{border-color:var(--red)}
 
 /* app update */
 .bar{height:10px;border-radius:999px;background:var(--s2);overflow:hidden}
