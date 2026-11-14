@@ -42,6 +42,7 @@ const IC = {
   logout:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h6v-2H5V5h5zm6.6 4.6L15.2 9l2 2H9v2h8.2l-2 2 1.4 1.4L21 12z"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4.5"/><path d="M11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z"/></svg>',
   photo:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 13h14l-4.5-6-3.5 4.5-2.5-3z"/></svg>',
+  send:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21 23 12 2 3v7l15 2-15 2z"/></svg>',
   search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>',
   speak:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1A9 9 0 0 0 14 3.2z"/></svg>',
   bigtruck:'<svg viewBox="0 0 70 44"><rect x="2" y="6" width="42" height="24" rx="2" fill="#eef2f8" stroke="#9aa8c0"/><path d="M46 12h11l10 11v8H46z" fill="#2b4f9e"/><path d="M49 15h7l7 7.5H49z" fill="#bcd3f5"/><rect x="2" y="30" width="65" height="4" fill="#334"/><circle cx="12" cy="36" r="5" fill="#222"/><circle cx="24" cy="36" r="5" fill="#222"/><circle cx="56" cy="36" r="5" fill="#222"/><circle cx="12" cy="36" r="2" fill="#aaa"/><circle cx="24" cy="36" r="2" fill="#aaa"/><circle cx="56" cy="36" r="2" fill="#aaa"/></svg>',
@@ -135,6 +136,7 @@ const EV = {
   gpsoff:{t:'⚠ คนขับปิด GPS', i:'warn', bg:'#e0352b'},
   gpsreal:{t:'GPS กลับมาปกติ', i:'gps', bg:'#1f9d50'},
   logout:{t:'คนขับออกจากระบบ (GPS หยุด)', i:'logout', bg:'#5d6a84'},
+  report:{t:'คนขับแจ้งสถานะ', i:'send', bg:'#123f95'},
 };
 const DEFAULT_CENTER = [13.7563, 100.5018];
 
@@ -346,15 +348,16 @@ function go(screen){
   if (['home','jobs','hist','prof'].includes(screen)) dTab = screen;
   if (screen==='standby') prepStandby();
   if (screen==='fuel') prepFuel();
+  if (screen==='report') prepReport();
   renderDriver(); window.scrollTo({top:0});
 }
 function goTab(tab){ dTab = tab; go(tab); }
 
-const TITLES = {home:'ศรีมงคล 99', standby:'แจ้งสแตนบาย', hitch:'หัว-หางเข้าช่อง', delay:'แจ้งเหตุล่าช้า', fuel:'เติมน้ำมัน', jobs:'งานของฉัน', hist:'ประวัติงาน', prof:'โปรไฟล์'};
+const TITLES = {report:'แจ้งสถานะ', home:'ศรีมงคล 99', standby:'แจ้งสแตนบาย', hitch:'หัว-หางเข้าช่อง', delay:'แจ้งเหตุล่าช้า', fuel:'เติมน้ำมัน', jobs:'งานของฉัน', hist:'ประวัติงาน', prof:'โปรไฟล์'};
 function renderDriver(){
   if (role!=='driver' || $('scrDriver').hidden) return;
   const t = S.trucks[myTruck];
-  const SCR = {home:'dHome', standby:'dStandby', hitch:'dHitch', delay:'dDelay', fuel:'dFuel', jobs:'dJobs', hist:'dHist', prof:'dProf'};
+  const SCR = {home:'dHome', standby:'dStandby', hitch:'dHitch', delay:'dDelay', fuel:'dFuel', report:'dReport', jobs:'dJobs', hist:'dHist', prof:'dProf'};
   Object.entries(SCR).forEach(([k, el]) => $(el).hidden = dScreen !== k);
   document.querySelectorAll('.tabbar [data-tab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab===dTab)));
   // app bar: home shows menu + brand, sub screens show back + title
@@ -400,6 +403,7 @@ function renderDriver(){
 
   if (dScreen==='standby') renderStandbyAuto();
   if (dScreen==='hitch') renderHitch(t);
+  if (dScreen==='report') renderReportAuto();
   if (dScreen==='fuel') renderFuel(t);
   if (dScreen==='jobs') renderJobs(t);
   if (dScreen==='hist') renderDriverHistory();
@@ -702,6 +706,56 @@ $('fuSave').onclick = async () => {
   $('fuSave').disabled = false;
 };
 
+/* ===== driver: status report (real GPS only) ===== */
+let rpStatus = '';
+document.querySelectorAll('#rpStatus button').forEach(b => b.onclick = () => {
+  rpStatus = b.dataset.v; document.querySelectorAll('#rpStatus button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+});
+function freshGps(){
+  // only the app's own GPS (fake-GPS positions are rejected there); never typed or picked by the driver
+  const l = lastLoc(), t = S.trucks[myTruck] || {};
+  if (t.gpsMock) return {err: 'ตรวจพบแอป GPS ปลอม ปิดแอปนั้นก่อนจึงจะแจ้งสถานะได้'};
+  if (t.gpsOff) return {err: 'GPS ของมือถือปิดอยู่ เปิด “ตำแหน่ง” ก่อน'};
+  if (!l || Date.now() - (l.at||0) > 3*60000) return {err: 'ยังไม่มีสัญญาณ GPS ล่าสุด รอสักครู่ (ออกไปที่โล่งจะเร็วขึ้น)'};
+  return {loc: l};
+}
+function prepReport(){
+  const t = S.trucks[myTruck] || {};
+  const opts = placeList().map(([id,p]) => `<option value="${id}">${esc(p.name)}</option>`).join('');
+  $('rpDest').innerHTML = `<option value="">— เลือกปลายทาง —</option>${opts}`;
+  if (t.destId && S.places[t.destId]) $('rpDest').value = t.destId;
+  if (t.etaAt){ const d = new Date(t.etaAt); $('rpTime').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const k = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString()))/864e5); $('rpDay').value = String(Math.min(2, Math.max(0, k))); }
+  if (!rpStatus){ const b = document.querySelector(`#rpStatus button[data-v="${t.status==='enroute'?'กำลังเดินทาง':''}"]`); if (b) b.click(); }
+  renderReportAuto();
+}
+function renderReportAuto(){
+  $('rpNow').textContent = fmtT(Date.now());
+  const g = freshGps();
+  $('rpGps').innerHTML = g.loc ? `${(+g.loc.lat).toFixed(5)}, ${(+g.loc.lng).toFixed(5)}${g.loc.acc?` <span class="small muted">(±${Math.round(g.loc.acc)} ม.)</span>`:''}` : `<span style="color:var(--red)">${esc(g.err)}</span>`;
+  const today = new Date(new Date().toDateString()).getTime();
+  const mine = (S.myEvents||[]).filter(e => e.type === 'report' && e.at >= today);
+  $('rpMine').innerHTML = mine.length ? mine.map(e => `<div class="small" style="padding:6px 0;border-bottom:1px dashed var(--line)">${fmtT(e.at)} · ${esc(e.text)}</div>`).join('') : '<div class="small muted" style="padding:6px 0">ยังไม่ได้แจ้งวันนี้</div>';
+}
+$('rpSend').onclick = async () => {
+  const t = S.trucks[myTruck]; if (!t) return;
+  if (!rpStatus){ toast('เลือกสถานะก่อน'); return; }
+  const destId = $('rpDest').value; if (!destId){ toast('เลือกปลายทาง'); return; }
+  const tm = $('rpTime').value; if (!tm){ toast('ใส่เวลาที่จะถึง'); return; }
+  const g = freshGps(); if (!g.loc){ toast(g.err); renderReportAuto(); return; }
+  const [hh, mm] = tm.split(':').map(Number); const d = new Date(); d.setDate(d.getDate() + (+$('rpDay').value)); d.setHours(hh, mm, 0, 0);
+  const destName = S.places[destId].name, note = $('rpNote').value.trim(), now = Date.now();
+  const rpt = {truck: myTruck, plate: t.plate||'', driver: t.driver||'', status: rpStatus, destId, destName, etaAt: d.getTime(), note,
+    lat: +(+g.loc.lat).toFixed(6), lng: +(+g.loc.lng).toFixed(6), acc: Math.round(g.loc.acc||0), gpsAt: g.loc.at || now, at: now};
+  $('rpSend').disabled = true;
+  try {
+    await db.collection('reports').add(rpt);
+    addEvent('report', `${rpStatus} · ไป ${destName} · ถึง ${fmtDT(d.getTime())}${note?` · ${note}`:''}`, '', g.loc);
+    $('rpNote').value = ''; toast('ส่งแจ้งสถานะให้แอดมินแล้ว'); go('home');
+  } catch(e){ toast('ส่งไม่สำเร็จ ตรวจอินเทอร์เน็ต'); }
+  finally { $('rpSend').disabled = false; }
+};
+
 /* my job */
 function renderJobs(t){
   const st = ST[t.status]||ST.idle;
@@ -903,7 +957,10 @@ function renderAdmin(){
   document.querySelectorAll('.side [data-at]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.at===aTab)));
   $('atOv').hidden = aTab!=='ov'; $('atAl').hidden = aTab!=='al'; $('atJobs').hidden = aTab!=='jobs';
   $('atEv').hidden = aTab!=='ev'; $('atUsers').hidden = aTab!=='users'; $('atSet').hidden = aTab!=='set'; $('atDone').hidden = aTab!=='done';
-  $('atSt').hidden = !aTab.startsWith('st-'); $('atFleet').hidden = aTab!=='fleet';
+  $('atSt').hidden = !aTab.startsWith('st-'); $('atFleet').hidden = aTab!=='fleet'; $('atRep').hidden = aTab!=='rep';
+  startReports();
+  { const unread = reports.filter(r => r.at > repSeen()).length; $('repBadge').hidden = !unread || aTab==='rep'; $('repBadge').textContent = unread; }
+  if (aTab==='rep') renderReports();
   STATUS_PAGES.forEach(g => { const el = $('cnt-'+g.key); if (el) el.textContent = ids.filter(id => g.match(S.trucks[id])).length; });
   if (aTab.startsWith('st-')) renderStatusPage(aTab.slice(3), sorted);
   if (aTab==='fleet'){ startDoneListener(); renderFleet(); }
@@ -1146,7 +1203,7 @@ async function cleanupOld(){
       const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
     } catch(e){}
   };
-  await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at');
+  await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at'); await purge('reports', 'at');
 }
 
 /* ===== admin: assign a job (origin -> destination) ===== */
@@ -1269,6 +1326,45 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-ts-close]')){ closeTruckSearch(); return; }
   if (!e.target.closest('#tsWrap')) closeTruckSearch();
 });
+
+/* ===== admin: status reports from all trucks ===== */
+let reports = [], repUnsub = null, repReady = false;
+function startReports(){
+  if (repUnsub || !db || !user) return;
+  const cutoff = Date.now() - KEEP_DAYS*864e5;
+  repUnsub = db.collection('reports').where('at', '>=', cutoff).orderBy('at', 'desc').limit(500).onSnapshot(snap => {
+    const prevTop = reports[0] && reports[0].at;
+    reports = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.at - a.at);
+    // alert the admin for each new report that arrives while the app is open
+    if (repReady && reports[0] && (!prevTop || reports[0].at > prevTop) && !snap.metadata.hasPendingWrites){
+      const r = reports[0];
+      try { navigator.vibrate && navigator.vibrate([250,120,250]); } catch(e){}
+      try { actx = actx || new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); tone(784,0,.15); tone(1047,.18,.25); } catch(e){}
+      toast(`📍 ${r.plate}: ${r.status} → ${r.destName}`);
+    }
+    repReady = true;
+    if (!$('scrAdmin').hidden) renderAdmin();
+  }, () => {});
+}
+const repSeen = () => ls.get('repSeen', 0);
+function renderReports(){
+  const sel = $('rpTruck').value;
+  $('rpTruck').innerHTML = `<option value="">ทั้งหมด</option>` + Object.entries(S.trucks).sort((a,b)=>(a[1].plate||'').localeCompare(b[1].plate||'','th'))
+    .map(([id,t]) => `<option value="${id}">${esc(t.plate)} · ${esc(t.driver)}</option>`).join('');
+  $('rpTruck').value = sel;
+  const days = +$('rpRange').value, from = days === 1 ? new Date(new Date().toDateString()).getTime() : Date.now() - days*864e5;
+  const list = reports.filter(r => r.at >= from && (!sel || r.truck === sel)), seen = repSeen();
+  $('repList').innerHTML = list.length ? list.map(r => `<div class="rep${r.at > seen ? ' new' : ''}">
+      <span class="ic" style="background:#123f95;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:#fff;flex:none">${ico('send')}</span>
+      <div class="grow">
+        <div class="row between" style="gap:6px"><div><b>${esc(r.plate)}</b> <span class="small muted">· ${esc(r.driver)}</span></div><span class="small muted">${dayLbl(r.at)} ${fmtT(r.at)}</span></div>
+        <div style="margin:3px 0"><span class="st">${esc(r.status)}</span> ไป <b>${esc(r.destName)}</b></div>
+        <div class="small">ถึงประมาณ <b>${fmtDT(r.etaAt)}</b>${r.note?` · ${esc(r.note)}`:''}</div>
+        <div class="small muted">GPS ${(+r.lat).toFixed(5)}, ${(+r.lng).toFixed(5)}${r.acc?` (±${r.acc} ม.)`:''} · <a href="https://www.google.com/maps?q=${(+r.lat).toFixed(6)},${(+r.lng).toFixed(6)}" target="_blank" rel="noopener">เปิดแผนที่</a> · <button class="ph" data-pick-truck="${esc(r.truck)}">ดูรถ</button></div>
+      </div></div>`).join('') : '<div class="empty">ยังไม่มีการแจ้งสถานะในช่วงนี้</div>';
+  if (aTab === 'rep' && reports[0]) setTimeout(() => ls.set('repSeen', reports[0].at), 1500);   // mark as read after viewing
+}
+$('rpRange').onchange = renderReports; $('rpTruck').onchange = renderReports;
 
 /* ===== completed-job summary per truck ===== */
 function renderFleet(){

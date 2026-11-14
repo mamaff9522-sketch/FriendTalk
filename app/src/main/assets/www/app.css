@@ -164,7 +164,7 @@ textarea.input{min-height:84px;resize:vertical}
 .tl .ic i{width:19px;height:19px}
 .tl b{display:block}
 .tl time{font-size:12.5px;color:var(--muted);white-space:nowrap}
-.tl .ph{color:var(--blue);font-weight:700;font-size:13px;background:none;border:0;padding:2px 0}
+.ph,.tl .ph{color:var(--blue);font-weight:700;font-size:13px;background:none;border:0;padding:2px 0}
 .empty{padding:22px 12px;text-align:center;color:var(--muted)}
 
 /* pin */
@@ -314,6 +314,14 @@ textarea.input{min-height:84px;resize:vertical}
 .ts-row .who b{font-size:16px}
 .ts-row .btn{min-height:36px;font-size:13px;padding:5px 10px}
 .ts-row mark{background:#ffe08a;border-radius:3px;padding:0 1px}
+
+.rep-cta>i:first-child{background:var(--navy)!important}
+#rpStatus button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.rep{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rep:last-child{border-bottom:0}
+.rep.new{background:#fff8ec}
+.rep .st{display:inline-block;background:#e4ecfb;color:var(--navy);font-weight:700;font-size:13px;border-radius:8px;padding:2px 8px}
+.rep a{color:var(--blue);font-weight:700;font-size:13px;text-decoration:none}
 
 /* app update */
 .bar{height:10px;border-radius:999px;background:var(--s2);overflow:hidden}

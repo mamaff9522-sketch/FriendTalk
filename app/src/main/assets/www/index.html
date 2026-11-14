@@ -86,6 +86,7 @@
         <button class="act a-red" data-nav="delay"><i data-i="warn"></i><span>แจ้งเหตุล่าช้า</span></button>
       </div>
 
+      <button class="fuel-cta rep-cta" data-nav="report"><i data-i="send"></i><span class="grow"><b>แจ้งสถานะ</b><span class="small">ส่งสถานะ ปลายทาง เวลาที่จะถึง และตำแหน่ง GPS ให้แอดมิน</span></span><i data-i="chev"></i></button>
       <button class="fuel-cta" data-nav="fuel"><i data-i="fuel"></i><span class="grow"><b id="fuelCta">เติมน้ำมัน ครั้งที่ 1</b><span class="small" id="fuelCtaSub">บันทึกการเติมน้ำมันของงานนี้</span></span><i data-i="chev"></i></button>
     </div>
 
@@ -172,6 +173,34 @@
       <div class="card pad" style="margin-top:12px"><b class="sec">รายการเติมน้ำมันงานนี้</b><div id="fuList"></div></div>
     </div>
 
+    <!-- STATUS REPORT -->
+    <div id="dReport" class="dscr" hidden>
+      <div class="hero"><i data-i="send" class="hero-ic c-navy-t"></i><div><b>แจ้งสถานะ</b><div class="small muted">ส่งให้แอดมินทันที ตำแหน่งใช้ GPS จริงของมือถือเท่านั้น</div></div></div>
+      <div class="form">
+        <div class="f">สถานะ <span class="req">*</span>
+          <div class="quick" id="rpStatus" style="margin:6px 0 0">
+            <button data-v="กำลังเดินทาง">กำลังเดินทาง</button><button data-v="ถึงต้นทางแล้ว">ถึงต้นทางแล้ว</button><button data-v="รอขึ้นสินค้า">รอขึ้นสินค้า</button>
+            <button data-v="รอลงสินค้า">รอลงสินค้า</button><button data-v="พักรถ">พักรถ</button><button data-v="เติมน้ำมัน">เติมน้ำมัน</button><button data-v="อื่นๆ">อื่นๆ</button>
+          </div>
+        </div>
+        <label class="f">ปลายทาง <span class="req">*</span><span class="field"><span class="rt-dot d"></span><select id="rpDest"></select><i data-i="down" class="dd"></i></span></label>
+        <div class="f">เวลาที่จะถึงปลายทาง <span class="req">*</span>
+          <div class="grid2">
+            <span class="field"><i data-i="cal"></i><select id="rpDay"><option value="0">วันนี้</option><option value="1">พรุ่งนี้</option><option value="2">มะรืนนี้</option></select><i data-i="down" class="dd"></i></span>
+            <span class="field"><input type="time" id="rpTime" value="14:30"></span>
+          </div>
+        </div>
+        <label class="f">หมายเหตุ (ถ้ามี)<textarea class="input" id="rpNote" placeholder="เช่น ถึงด่านแล้ว รอเข้าโรงงาน"></textarea></label>
+      </div>
+      <div class="autobox">
+        <b class="sec">ข้อมูลอัตโนมัติ (ระบบบันทึกให้)</b>
+        <div class="kv"><i data-i="clock"></i><span>เวลาแจ้ง</span><b>: <span id="rpNow">–</span></b></div>
+        <div class="kv"><i data-i="gps"></i><span>พิกัด GPS</span><b>: <span id="rpGps">–</span></b></div>
+      </div>
+      <button class="btn btn-navy btn-lg btn-block" id="rpSend"><i data-i="send"></i>ส่งแจ้งสถานะ</button>
+      <div class="card pad" style="margin-top:12px"><b class="sec">ที่เคยแจ้งวันนี้</b><div id="rpMine"></div></div>
+    </div>
+
     <!-- MY JOB -->
     <div id="dJobs" class="dscr" hidden>
       <div class="card pad" id="jobCard"></div>
@@ -219,6 +248,7 @@
   <button data-nav="hitch"><i data-i="dock"></i>หัว-หางเข้าช่อง</button>
   <button data-nav="fuel"><i data-i="fuel"></i>เติมน้ำมัน</button>
   <button data-nav="delay"><i data-i="warn"></i>แจ้งเหตุล่าช้า</button>
+  <button data-nav="report"><i data-i="send"></i>แจ้งสถานะ</button>
   <button data-tab="jobs"><i data-i="list"></i>งานของฉัน</button>
   <button data-tab="hist"><i data-i="clock"></i>ประวัติงาน</button>
   <button data-tab="prof"><i data-i="user"></i>โปรไฟล์</button>
@@ -245,6 +275,7 @@
     <div class="side-h"><i data-i="truckw"></i><div><b>ศรีมงคล 99</b><div class="small">ศูนย์ควบคุม · Admin Control</div></div></div>
     <button data-at="ov" aria-pressed="true"><i data-i="home"></i>ภาพรวม (ติดตามรถ)</button>
     <button data-at="al"><i data-i="alert"></i>เหตุแจ้งเตือน <span class="badge" id="alBadge" hidden>0</span></button>
+    <button data-at="rep"><i data-i="send"></i>แจ้งสถานะจากคนขับ <span class="badge" id="repBadge" hidden>0</span></button>
     <div class="side-sec">สถานะรถ</div>
     <button data-at="st-standby"><i data-i="flag"></i>รถสแตนบาย <span class="cnt" id="cnt-standby">0</span></button>
     <button data-at="st-loading"><i data-i="dock"></i>รถกำลังขึ้นงาน <span class="cnt" id="cnt-loading">0</span></button>
@@ -290,6 +321,16 @@
       </div>
 
       <div id="atAl" class="card" hidden></div>
+      <div id="atRep" class="stack" hidden>
+        <div class="card pad stack">
+          <div class="row between" style="flex-wrap:wrap"><b class="sec">แจ้งสถานะจากคนขับ (ทุกคัน)</b><span class="small muted">ย้อนหลัง 35 วัน</span></div>
+          <div class="grid2">
+            <label class="f">ช่วงเวลา<span class="field"><select id="rpRange"><option value="1" selected>วันนี้</option><option value="7">7 วัน</option><option value="35">35 วัน</option></select><i data-i="down" class="dd"></i></span></label>
+            <label class="f">คนขับ / รถ<span class="field"><select id="rpTruck"><option value="">ทั้งหมด</option></select><i data-i="down" class="dd"></i></span></label>
+          </div>
+        </div>
+        <div class="card" id="repList"></div>
+      </div>
       <div id="atSt" class="stack" hidden>
         <div class="st-head" id="stHead"></div>
         <div class="stack" id="stList"></div>
