@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ srimongkol99 ]
   workflow_dispatch:
 
 permissions:
@@ -46,15 +46,18 @@ jobs:
           name: srimongkol99-apk
           path: app/build/outputs/apk/release/app-release.apk
 
-      # Permanent link to the newest app:
-      # https://github.com/<owner>/<repo>/releases/latest/download/srimongkol99.apk
+      # Permanent link to the newest app (kept as a fixed tag, never marked "latest"
+      # so it does not touch this repository's other releases):
+      # https://github.com/<owner>/<repo>/releases/download/srimongkol99-apk/srimongkol99.apk
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk srimongkol99.apk
-          gh release create "build-${{ github.run_number }}" srimongkol99.apk \
+          gh release delete srimongkol99-apk --repo "${{ github.repository }}" --cleanup-tag -y || true
+          gh release create srimongkol99-apk srimongkol99.apk \
             --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
             --title "ศรีมงคล 99 เวอร์ชัน 1.0.${{ github.run_number }}" \
-            --notes "$(git log -1 --pretty=%s)" \
-            --latest
+            --notes "แอปขนส่ง ศรีมงคล 99 — $(git log -1 --pretty=%s)" \
+            --latest=false
