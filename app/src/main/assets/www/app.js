@@ -1074,8 +1074,9 @@ function renderDriverHistory(){
   const list = saved.concat(rebuilt).filter(j => j.doneAt >= cutoff).sort((a,b) => b.doneAt - a.doneAt);
   list.forEach(j => jobsById[j.id] = j);
   const runMs = j => j.departAt && j.arriveAt && j.arriveAt >= j.departAt ? j.arriveAt - j.departAt : 0;
-  const L = list.reduce((a,j)=>a+(+j.fuelL||0),0), B = list.reduce((a,j)=>a+(+j.fuelB||0),0), R = list.reduce((a,j)=>a+runMs(j),0);
-  $('dHistSum').innerHTML = `<div class="sum"><b>${list.length}</b><span>งานที่จบ</span></div><div class="sum"><b>${R ? durShort(R) : '–'}</b><span>เวลาวิ่งรวม</span></div><div class="sum"><b>${num(L)}</b><span>ลิตร${B?` · ${num(B)} บ.`:''}</span></div>`;
+  // running time is shown per job only (no total across jobs)
+  const L = list.reduce((a,j)=>a+(+j.fuelL||0),0), B = list.reduce((a,j)=>a+(+j.fuelB||0),0);
+  $('dHistSum').innerHTML = `<div class="sum"><b>${list.length}</b><span>งานที่จบ (35 วัน)</span></div><div class="sum" style="grid-column:span 2"><b>${num(L)} ลิตร</b><span>น้ำมันรวม${B?` · ${num(B)} บาท`:''}</span></div>`;
   $('dJobsDone').innerHTML = list.length ? list.map(j => {
     const d = new Date(j.doneAt), run = runMs(j);
     const runTxt = run ? (run < 60000 ? 'ไม่ถึง 1 นาที' : durShort(run)) : '–';
