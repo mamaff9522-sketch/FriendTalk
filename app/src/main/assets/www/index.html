@@ -23,10 +23,16 @@
 
 <!-- ================= DRIVER: PICK TRUCK ================= -->
 <section id="scrPick" class="full" hidden>
-  <header class="appbar"><button class="ab-btn" data-nav="start" aria-label="กลับ"><i data-i="back"></i></button><h2 class="ab-title">เลือกรถของคุณ</h2><span class="ab-btn"></span></header>
-  <div class="page">
-    <p class="muted" style="margin:0 0 10px">แตะชื่อของคุณ ระบบจะจำไว้ในมือถือเครื่องนี้</p>
-    <div id="pickList" class="stack"></div>
+  <header class="appbar"><button class="ab-btn" data-nav="start" aria-label="กลับ"><i data-i="back"></i></button><h2 class="ab-title">เข้าสู่ระบบคนขับ</h2><span class="ab-btn"></span></header>
+  <div class="page center-col">
+    <div class="card pad pin-card" style="text-align:left;align-items:stretch">
+      <div style="text-align:center"><div class="avatar avatar-lg" style="margin:0 auto"><i data-i="driver"></i></div></div>
+      <p class="small muted" style="text-align:center;margin:4px 0 6px">ใช้ชื่อผู้ใช้และรหัสผ่านที่ได้จากแอดมิน</p>
+      <label class="f">ชื่อผู้ใช้<span class="field"><i data-i="user"></i><input id="lgUser" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="เช่น sm001"></span></label>
+      <label class="f">รหัสผ่าน<span class="field"><i data-i="shield"></i><input id="lgPass" type="password" autocomplete="current-password" placeholder="รหัสผ่าน"><button class="link small" id="lgEye" type="button" style="padding:0 4px">แสดง</button></span></label>
+      <div class="note" id="lgMsg" hidden style="margin:0;color:var(--red)"></div>
+      <button class="btn btn-blue btn-lg btn-block" id="lgGo">เข้าสู่ระบบ</button>
+    </div>
   </div>
 </section>
 
@@ -181,8 +187,7 @@
       <div class="card list" style="margin-top:12px">
         <div class="li"><i data-i="pin"></i><span class="grow">GPS ติดตามรถ</span><b id="pfGps">–</b></div>
         <label class="li"><i data-i="sun"></i><span class="grow">เปิดหน้าจอค้างไว้</span><input type="checkbox" id="pfScreen" class="sw"></label>
-        <button class="li" id="pfSwitch"><i data-i="swap"></i><span class="grow">เปลี่ยนรถ / เปลี่ยนคนขับ</span><i data-i="chev"></i></button>
-        <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากโหมดคนขับ</span><i data-i="chev"></i></button>
+                <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากระบบ</span><i data-i="chev"></i></button>
       </div>
       <p class="note">GPS จะส่งตำแหน่งต่อเนื่องแม้ปิดหน้าจอ ตราบที่ยังเห็นแจ้งเตือน “GPS กำลังติดตาม” ด้านบนจอ ควรเสียบที่ชาร์จในรถ</p>
     </div>
@@ -267,7 +272,7 @@
 
       <div id="atUsers" class="stack" hidden>
         <div class="card pad stack">
-          <b class="sec">เพิ่มรถ / คนขับ</b>
+          <b class="sec">เพิ่มคนขับ / รถ</b>
           <div class="grid2">
             <label class="f">ทะเบียนรถ <span class="req">*</span><input class="input" id="nPlate" placeholder="เช่น 70-1234 กทม."></label>
             <label class="f">ชื่อคนขับ <span class="req">*</span><input class="input" id="nDriver" placeholder="เช่น สมชาย ใจดี"></label>
@@ -276,7 +281,12 @@
             <label class="f">รหัสพนักงาน<input class="input" id="nCode" placeholder="เช่น DRV-1023"></label>
             <label class="f">เบอร์โทรคนขับ<input class="input" id="nPhone" inputmode="tel" placeholder="เช่น 0812345678"></label>
           </div>
-          <button class="btn btn-orange" id="nAdd"><i data-i="plus"></i>เพิ่มรถ</button>
+          <b class="sec" style="margin-top:4px">บัญชีเข้าแอปของคนขับ</b>
+          <div class="grid2">
+            <label class="f">ชื่อผู้ใช้ <span class="req">*</span><input class="input" id="nUser" autocapitalize="none" spellcheck="false" placeholder="เช่น sm001"></label>
+            <label class="f">รหัสผ่าน <span class="req">*</span><span class="field"><input id="nPass" inputmode="numeric" placeholder="6 หลัก"><button class="link small" id="nGen" type="button" style="padding:0 4px">สุ่ม</button></span></label>
+          </div>
+          <button class="btn btn-orange" id="nAdd"><i data-i="plus"></i>เพิ่มคนขับ และสร้างบัญชี</button>
         </div>
         <div class="card" id="uList"></div>
         <div class="card pad stack">
@@ -331,6 +341,23 @@
 
 <!-- admin: hold-to-talk recording indicator -->
 <div class="rec" id="recBox" hidden><span class="rec-dot"></span><b>กำลังพูด… <span id="recSec">0</span> วิ</b><span class="small">ปล่อยนิ้วเพื่อส่ง · เลื่อนออกเพื่อยกเลิก</span></div>
+
+<!-- admin: login details to give the driver -->
+<div class="ov" id="credOv" hidden>
+  <div class="card pad stack" style="width:100%;max-width:360px">
+    <b class="sec" style="font-size:18px;text-align:center" id="credTitle">บัญชีคนขับ</b>
+    <p class="small muted" style="margin:0;text-align:center">ส่งข้อมูลนี้ให้คนขับ ใช้เข้าแอป ศรีมงคล 99</p>
+    <div class="autobox" style="margin:0">
+      <div class="kv" style="grid-template-columns:22px 86px 1fr"><i data-i="driver"></i><span>คนขับ</span><b id="credName"></b></div>
+      <div class="kv" style="grid-template-columns:22px 86px 1fr"><i data-i="user"></i><span>ชื่อผู้ใช้</span><b id="credUser" style="font-size:18px"></b></div>
+      <div class="kv" style="grid-template-columns:22px 86px 1fr"><i data-i="shield"></i><span>รหัสผ่าน</span><b id="credPass" style="font-size:18px;letter-spacing:2px"></b></div>
+    </div>
+    <p class="small muted" style="margin:0">รหัสผ่านจะไม่แสดงอีก ถ้าลืม กด “ตั้งรหัสใหม่” ที่รายชื่อคนขับได้</p>
+    <button class="btn btn-green btn-block" id="credLine">ส่งทาง LINE</button>
+    <button class="btn btn-navy btn-block" id="credCopy">คัดลอกข้อความ</button>
+    <button class="btn btn-ghost btn-block" id="credClose">ปิด</button>
+  </div>
+</div>
 
 <!-- photo viewer -->
 <div class="ov" id="photoOv" hidden><img id="photoImg" alt="รูปที่แนบ"><button class="btn btn-ghost" id="photoClose">ปิด</button></div>

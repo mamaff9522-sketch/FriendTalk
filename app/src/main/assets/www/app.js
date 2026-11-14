@@ -186,7 +186,11 @@ function startData(){
   unsub.push(db.collection('trucks').onSnapshot({includeMetadataChanges:true}, snap => {
     const next = {}; snap.forEach(d => next[d.id] = d.data());
     S.trucks = next; S.connected = !snap.metadata.fromCache;
-    if (role==='driver' && myTruck && !S.trucks[myTruck] && !snap.metadata.fromCache){ myTruck=''; ls.set('truck',''); call('stopTracking'); }
+    if (role==='driver' && myTruck && !snap.metadata.fromCache){
+      const mt = S.trucks[myTruck];
+      if (!mt) driverLogout('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน');
+      else if ((mt.loginVer||0) !== ls.get('loginVer', 0)) driverLogout('แอดมินเปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่');
+    }
     renderAll();
   }, () => {}));
   unsub.push(db.collection('places').onSnapshot(snap => { const p={}; snap.forEach(d => p[d.id]=d.data()); S.places=p; renderAll(); }, () => {}));
@@ -208,7 +212,7 @@ function route(){
 }
 
 /* ================= start / role ================= */
-$('goDriver').onclick = () => { role='driver'; ls.set('role', role); if (myTruck){ show('scrDriver'); driverStart(); go('home'); } else { show('scrPick'); renderPick(); } };
+$('goDriver').onclick = () => { role='driver'; ls.set('role', role); if (myTruck){ show('scrDriver'); driverStart(); go('home'); } else { $('lgUser').value = ls.get('loginUser',''); show('scrPick'); renderPick(); } };
 $('goAdmin').onclick = () => { openPin(); };
 document.addEventListener('click', e => {
   const n = e.target.closest('[data-nav]'); if (n){ e.preventDefault(); const k = n.dataset.nav;
@@ -220,19 +224,51 @@ document.addEventListener('click', e => {
   const ph = e.target.closest('[data-photo]'); if (ph){ openPhoto(ph.dataset.photo); return; }
 });
 
-/* ================= driver: pick truck ================= */
-function renderPick(){
-  const ids = Object.keys(S.trucks).sort((a,b)=>(S.trucks[a].driver||'').localeCompare(S.trucks[b].driver||'','th'));
-  $('pickList').innerHTML = ids.length ? ids.map(id => { const t=S.trucks[id];
-    return `<button class="card prof" data-pick="${id}" style="width:100%;text-align:left"><div class="avatar">${ico('driver')}</div><div class="grow"><b class="pname">${esc(t.driver)}</b><div class="small muted">รหัส ${esc(t.code||'–')} · ${esc(t.plate)}</div></div>${ico('chev')}</button>`; }).join('')
-    : `<div class="card empty">${user ? 'ยังไม่มีรายชื่อคนขับ ให้แอดมินเพิ่มที่เมนู “จัดการผู้ใช้งาน” ก่อน' : esc(authErr || 'กำลังโหลดรายชื่อ…')}</div>`;
+/* ================= driver: log in with username + password ================= */
+const normUser = u => String(u||'').trim().toLowerCase();
+const validUser = u => /^[a-z0-9._-]{3,20}$/.test(u);
+async function hashPw(pw, salt){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pw));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
-$('pickList').addEventListener('click', e => {
-  const b = e.target.closest('[data-pick]'); if(!b) return;
-  myTruck = b.dataset.pick; ls.set('truck', myTruck);
-  show('scrDriver'); driverStart(); go('home');
-  toast(`สวัสดี ${S.trucks[myTruck]?.driver || ''}`);
-});
+function renderPick(){
+  const m = $('lgMsg');
+  if (!user && authErr){ m.hidden = false; m.textContent = authErr; }
+  else if (m.dataset.kind === 'auth'){ m.hidden = true; }
+  if (!user && authErr) m.dataset.kind = 'auth';
+}
+$('lgEye').onclick = () => { const i=$('lgPass'); i.type = i.type==='password' ? 'text' : 'password'; $('lgEye').textContent = i.type==='password' ? 'แสดง' : 'ซ่อน'; };
+$('lgPass').addEventListener('keydown', e => { if (e.key==='Enter') $('lgGo').click(); });
+$('lgUser').addEventListener('keydown', e => { if (e.key==='Enter') $('lgPass').focus(); });
+$('lgGo').onclick = async () => {
+  const m = $('lgMsg'); const fail = t => { m.hidden = false; m.dataset.kind = ''; m.textContent = t; };
+  const u = normUser($('lgUser').value), pw = $('lgPass').value;
+  if (!u || !pw){ fail('กรอกชื่อผู้ใช้และรหัสผ่าน'); return; }
+  if (!user){ fail(authErr || 'กำลังเชื่อมต่อ รอสักครู่แล้วลองใหม่'); return; }
+  $('lgGo').disabled = true;
+  try {
+    const d = await db.doc('logins/'+u).get({source:'server'});
+    if (!d.exists){ fail('ไม่พบชื่อผู้ใช้นี้ ตรวจสอบกับแอดมิน'); return; }
+    const L = d.data();
+    if (await hashPw(pw, L.salt) !== L.hash){ fail('รหัสผ่านไม่ถูกต้อง'); return; }
+    const t = await db.doc('trucks/'+L.truckId).get({source:'server'});
+    if (!t.exists){ fail('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน'); return; }
+    myTruck = L.truckId; ls.set('truck', myTruck); ls.set('loginVer', L.ver || 0); ls.set('loginUser', u);
+    S.trucks[myTruck] = t.data();
+    $('lgPass').value = ''; m.hidden = true;
+    show('scrDriver'); driverStart(); go('home');
+    toast(`สวัสดี ${t.data().driver || ''}`);
+  } catch(e){ fail('เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'); }
+  finally { $('lgGo').disabled = false; }
+};
+function driverLogout(msg){
+  call('stopTracking'); myTruck=''; ls.set('truck',''); ls.set('loginVer', 0);
+  if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; }
+  if (webWatch !== null){ try{ navigator.geolocation.clearWatch(webWatch); }catch(e){} webWatch = null; }
+  if (dMap){ dMap.remove(); dMap=null; dMk=null; dLine=null; dDestMk=null; updateDriverMap.fit=false; updateDriverMap.centered=false; }
+  closeDrawer(); $('lgUser').value = ls.get('loginUser','');
+  show('scrPick'); renderPick(); if (msg) toast(msg);
+}
 
 /* ================= driver ================= */
 let cmdUnsub = null, myEvUnsub = null, webWatch = null;
@@ -570,8 +606,8 @@ function renderJobs(t){
 
 /* profile */
 $('pfScreen').onchange = e => { ls.set('screenOn', e.target.checked); call('keepScreenOn', e.target.checked); };
-$('pfSwitch').onclick = () => { call('stopTracking'); myTruck=''; ls.set('truck',''); dMap && (dMap.remove(), dMap=null, dMk=null); show('scrPick'); renderPick(); };
-$('pfLogout').onclick = () => { call('stopTracking'); myTruck=''; ls.set('truck',''); role=''; ls.set('role',''); dMap && (dMap.remove(), dMap=null, dMk=null); show('scrStart'); };
+$('pfLogout').onclick = () => { if ($('pfLogout').dataset.sure !== '1'){ $('pfLogout').dataset.sure='1'; $('pfLogout').querySelector('.grow').textContent='แตะอีกครั้งเพื่อออกจากระบบ (GPS จะหยุดส่ง)'; setTimeout(()=>{ $('pfLogout').dataset.sure=''; $('pfLogout').querySelector('.grow').textContent='ออกจากระบบ'; }, 3500); return; }
+  driverLogout('ออกจากระบบแล้ว'); };
 
 /* writes */
 function writeTruck(patch){
@@ -729,8 +765,9 @@ function renderAdmin(){
   }
   if (aTab==='ev') $('evList').innerHTML = feedHTML(S.events, true) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
   if (aTab==='users'){
+    fillNewAccount();
     $('uList').innerHTML = ids.length ? `<div class="pad"><b class="sec">รถและคนขับในระบบ (${ids.length})</b></div>` + sorted.map(id => { const t=S.trucks[id];
-      return `<div class="al-item"><div class="avatar" style="width:40px;height:40px">${ico('driver')}</div><div class="grow"><b>${esc(t.driver)}</b> · ${esc(t.plate)}<div class="small muted">${esc(t.code||'')} ${esc(t.phone||'')}</div></div><button class="btn btn-ghost btn-sm" data-udel="${id}">ลบ</button></div>`; }).join('')
+      return `<div class="al-item" style="flex-wrap:wrap"><div class="avatar" style="width:40px;height:40px">${ico('driver')}</div><div class="grow"><b>${esc(t.driver)}</b> · ${esc(t.plate)}<div class="small muted">${t.username?`ชื่อผู้ใช้: <b style="color:var(--ink)">${esc(t.username)}</b>`:'<span style="color:var(--red)">ยังไม่มีบัญชี</span>'} ${esc(t.code||'')} ${esc(t.phone||'')}</div></div><div class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" data-ureset="${id}">${t.username?'ตั้งรหัสใหม่':'สร้างบัญชี'}</button><button class="btn btn-ghost btn-sm" data-udel="${id}">ลบ</button></div></div>`; }).join('')
       : `<div class="empty">ยังไม่มีรถในระบบ</div>`;
     const pl = placeList();
     $('pList').innerHTML = pl.length ? pl.map(([id,p]) => `<div class="al-item" style="padding:10px 0">${ico('factory')}<div class="grow"><b>${esc(p.name)}</b><div class="small muted">${p.lat!=null?`${(+p.lat).toFixed(4)}, ${(+p.lng).toFixed(4)}`:'ไม่มีพิกัด'}</div></div><button class="btn btn-ghost btn-sm" data-pdel="${id}">ลบ</button></div>`).join('') : '<div class="small muted">ยังไม่มีปลายทาง</div>';
@@ -769,7 +806,11 @@ document.addEventListener('click', async e => {
   if (e.target.closest('#cRing')){ sendCmd(selTruck, {type:'ring'}); return; }
   if (e.target.closest('#saySend')){ const txt = $('sayTxt').value.trim(); if (!txt){ toast('พิมพ์ข้อความก่อน'); return; } sendCmd(selTruck, {type:'announce', text:txt}); $('sayTxt').value=''; return; }
   const c = e.target.closest('#cCall'); if (c){ const t = S.trucks[selTruck]; if (!t || !t.phone){ e.preventDefault(); toast('ยังไม่มีเบอร์คนขับ เพิ่มได้ที่ “จัดการผู้ใช้งาน”'); } else if (A){ e.preventDefault(); call('openUrl', telHref(t.phone)); } return; }
-  const ud = e.target.closest('[data-udel]'); if (ud){ if (ud.dataset.sure!=='1'){ sure(ud); return; } await db.doc('trucks/'+ud.dataset.udel).delete().catch(()=>toast('ลบไม่สำเร็จ')); return; }
+  const ur = e.target.closest('[data-ureset]'); if (ur){ resetPw(ur.dataset.ureset); return; }
+  const ud = e.target.closest('[data-udel]'); if (ud){ if (ud.dataset.sure!=='1'){ sure(ud); return; }
+    const t = S.trucks[ud.dataset.udel];
+    try { if (t && t.username) await db.doc('logins/'+t.username).delete(); await db.doc('trucks/'+ud.dataset.udel).delete(); toast('ลบคนขับแล้ว'); } catch(err){ toast('ลบไม่สำเร็จ'); }
+    return; }
   const pd = e.target.closest('[data-pdel]'); if (pd){ if (pd.dataset.sure!=='1'){ sure(pd); return; } await db.doc('places/'+pd.dataset.pdel).delete().catch(()=>toast('ลบไม่สำเร็จ')); return; }
 });
 function sure(b){ b.dataset.sure='1'; b.textContent='แตะอีกครั้งเพื่อลบ'; b.style.color='var(--red)'; setTimeout(()=>{ if(b.isConnected){ b.dataset.sure=''; b.textContent='ลบ'; b.style.color=''; } }, 3000); }
@@ -830,14 +871,59 @@ function finishRec(){
 }
 
 /* users / places / settings */
+const genPw = () => String(Math.floor(100000 + Math.random()*900000));
+function suggestUser(){
+  const used = new Set(Object.values(S.trucks).map(t => t.username));
+  for (let i = 1; i < 1000; i++){ const u = 'sm' + String(i).padStart(3,'0'); if (!used.has(u)) return u; }
+  return 'sm' + Date.now().toString(36).slice(-4);
+}
+function fillNewAccount(){ if (!$('nUser').value) $('nUser').value = suggestUser(); if (!$('nPass').value) $('nPass').value = genPw(); }
+$('nGen').onclick = () => { $('nPass').value = genPw(); };
+async function writeLogin(u, pw, truckId, ver){
+  const salt = rid();
+  await db.doc('logins/'+u).set({truckId, salt, hash: await hashPw(pw, salt), ver, at: Date.now()});
+}
 $('nAdd').onclick = async () => {
   const plate = $('nPlate').value.trim(), driver = $('nDriver').value.trim();
-  if (!plate || !driver){ toast('กรอกทะเบียนรถและชื่อคนขับ'); return; }
+  const u = normUser($('nUser').value), pw = $('nPass').value.trim();
+  if (!driver || !plate){ toast('กรอกชื่อคนขับและทะเบียนรถ'); return; }
+  if (!validUser(u)){ toast('ชื่อผู้ใช้ใช้ได้เฉพาะ a-z, 0-9 ยาว 3–20 ตัว'); $('nUser').focus(); return; }
+  if (pw.length < 4){ toast('รหัสผ่านต้องยาวอย่างน้อย 4 ตัว'); $('nPass').focus(); return; }
+  $('nAdd').disabled = true;
   try {
-    await db.collection('trucks').doc('t'+Date.now().toString(36)).set({plate, driver, code:$('nCode').value.trim(), phone:$('nPhone').value.trim(), status:'idle', createdAt:Date.now(), updatedAt:Date.now()});
-    ['nPlate','nDriver','nCode','nPhone'].forEach(i => $(i).value=''); toast('เพิ่มรถแล้ว');
+    const ex = await db.doc('logins/'+u).get({source:'server'});
+    if (ex.exists){ toast('ชื่อผู้ใช้นี้มีคนใช้แล้ว เปลี่ยนชื่อใหม่'); return; }
+    const id = 't' + Date.now().toString(36);
+    await db.doc('trucks/'+id).set({plate, driver, code:$('nCode').value.trim(), phone:$('nPhone').value.trim(), username:u, loginVer:1, status:'idle', createdAt:Date.now(), updatedAt:Date.now()});
+    await writeLogin(u, pw, id, 1);
+    ['nPlate','nDriver','nCode','nPhone','nUser','nPass'].forEach(i => $(i).value='');
+    showCred(driver, u, pw, 'สร้างบัญชีคนขับแล้ว');
   } catch(e){ toast('เพิ่มไม่สำเร็จ ตรวจอินเทอร์เน็ต'); }
+  finally { $('nAdd').disabled = false; fillNewAccount(); }
 };
+async function resetPw(id){
+  const t = S.trucks[id]; if (!t) return;
+  let u = t.username;
+  if (!u){ u = suggestUser(); }
+  const pw = genPw(), ver = (t.loginVer||0) + 1;
+  try {
+    await writeLogin(u, pw, id, ver);
+    await db.doc('trucks/'+id).update({username:u, loginVer:ver});
+    showCred(t.driver, u, pw, 'ตั้งรหัสผ่านใหม่แล้ว');
+  } catch(e){ toast('ตั้งรหัสไม่สำเร็จ ตรวจอินเทอร์เน็ต'); }
+}
+let credText = '';
+function showCred(name, u, pw, title){
+  $('credTitle').textContent = title; $('credName').textContent = name; $('credUser').textContent = u; $('credPass').textContent = pw;
+  credText = `แอป ศรีมงคล 99 (คนขับ)\nคนขับ: ${name}\nชื่อผู้ใช้: ${u}\nรหัสผ่าน: ${pw}\nดาวน์โหลดแอป: https://github.com/mamaff9522-sketch/FriendTalk/releases/download/srimongkol99-apk/srimongkol99.apk`;
+  $('credOv').hidden = false; paintIcons($('credOv'));
+}
+$('credClose').onclick = () => { $('credOv').hidden = true; credText = ''; };
+$('credCopy').onclick = async () => {
+  if (A && A.copy){ call('copy', credText); toast('คัดลอกแล้ว ไปวางในแชทได้เลย'); return; }
+  try { await navigator.clipboard.writeText(credText); toast('คัดลอกแล้ว ไปวางในแชทได้เลย'); } catch(e){ toast('คัดลอกไม่ได้ จดชื่อผู้ใช้และรหัสผ่านไว้แทน'); }
+};
+$('credLine').onclick = () => { const url = 'https://line.me/R/msg/text/?' + encodeURIComponent(credText); if (A) call('openUrl', url); else window.open(url, '_blank'); };
 $('pAdd').onclick = async () => {
   const name = $('pName').value.trim(); if (!name){ toast('พิมพ์ชื่อปลายทาง'); return; }
   const raw = $('pLoc').value.trim(), loc = parseLoc(raw);
@@ -881,6 +967,7 @@ $('photoClose').onclick = () => $('photoOv').hidden = true;
 /* Android back button */
 window.onAndroidBack = () => {
   if (!$('photoOv').hidden){ $('photoOv').hidden = true; return true; }
+  if (!$('credOv').hidden){ $('credClose').click(); return true; }
   if (!$('cmdOv').hidden){ $('cmdOk').click(); return true; }
   if (!$('dDrawer').hidden){ closeDrawer(); return true; }
   if ($('aSide').classList.contains('open')){ closeSide(); return true; }
