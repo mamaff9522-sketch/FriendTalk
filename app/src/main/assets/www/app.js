@@ -302,8 +302,8 @@ function driverStart(){
     S.myJobs.forEach(j => jobsById[j.id] = j);
     if (dScreen==='hist') renderDriver();
   }, () => {});
-  myEvUnsub = db.collection('events').where('truck','==',myTruck).limit(150).onSnapshot(snap => {
-    S.myEvents = snap.docs.map(d => Object.assign({id:d.id}, d.data())).sort((a,b)=>b.at-a.at); if (dTab==='hist') renderDriver();
+  myEvUnsub = db.collection('events').where('truck','==',myTruck).limit(800).onSnapshot(snap => {
+    S.myEvents = snap.docs.map(d => Object.assign({id:d.id}, d.data())).sort((a,b)=>b.at-a.at); if (dScreen==='hist') renderDriver();
   }, () => {});
   // accounts logged in before phone-binding existed: bind to this phone now
   const mt = S.trucks[myTruck]; if (mt && !mt.deviceId) db.doc('trucks/'+myTruck).update({deviceId: DEVICE}).catch(()=>{});
@@ -401,10 +401,7 @@ function renderDriver(){
   if (dScreen==='hitch') renderHitch(t);
   if (dScreen==='fuel') renderFuel(t);
   if (dScreen==='jobs') renderJobs(t);
-  if (dScreen==='hist'){
-    $('dHistList').innerHTML = feedHTML(S.myEvents.slice(0, 40), false) || `<li class="empty" style="display:block">ยังไม่มีประวัติ</li>`;
-    $('dJobsDone').innerHTML = jobListHTML(S.myJobs || [], false);
-  }
+  if (dScreen==='hist') renderDriverHistory();
   if (dScreen==='prof'){
     $('pfName').textContent = t.driver || '–';
     $('pfInfo').textContent = `รหัส ${t.code||'–'} · ทะเบียน ${t.plate||'–'}`;
@@ -1051,6 +1048,46 @@ $('jobCopy').onclick = async () => { if (!jobOpen) return; const t = jobText(job
 function shareLine(text){ const url = 'https://line.me/R/msg/text/?' + encodeURIComponent(text); if (A) call('openUrl', url); else window.open(url, '_blank'); }
 $('jobLine').onclick = () => { if (jobOpen) shareLine(jobText(jobOpen)); };
 document.addEventListener('click', e => { const b = e.target.closest('[data-job]'); if (b) openJob(b.dataset.job); });
+
+/* driver history: one card per finished job (route, fuel, real driving time) */
+const parseNum = (txt, unit) => { const m = String(txt||'').match(new RegExp('([\\d,.]+)\\s*' + unit)); return m ? +m[1].replace(/,/g,'') : 0; };
+function jobsFromEvents(evs){
+  // rebuild jobs finished before job records existed, from the driver's own events
+  const out = []; let cur = {fuel: []};
+  evs.slice().sort((a,b) => a.at - b.at).forEach(e => {
+    if (e.type === 'standby'){ cur.standbyAt = e.at; const r = (e.text||'').split(' · ')[0]; if (r.includes('→')){ const [o,d] = r.split('→'); cur.originName = o.trim(); cur.destName = d.trim(); } else cur.destName = r.trim(); }
+    else if (e.type === 'depart'){ cur.departAt = e.at; if (!cur.destName) cur.destName = (e.text||'').replace('ปลายทาง','').trim(); }
+    else if (e.type === 'arrive') cur.arriveAt = e.at;
+    else if (e.type === 'fuel') cur.fuel.push({liters: parseNum(e.text, 'ลิตร'), baht: parseNum(e.text, 'บาท'), at: e.at});
+    else if (e.type === 'done'){
+      const r = e.text || ''; if (r.includes('→')){ const [o,d] = r.split('→'); cur.originName = o.trim(); cur.destName = d.trim(); } else if (r) cur.destName = r.trim();
+      out.push(Object.assign({}, cur, {id: 'ev-' + e.id, doneAt: e.at, fuelL: cur.fuel.reduce((a,f)=>a+f.liters,0), fuelB: cur.fuel.reduce((a,f)=>a+f.baht,0)}));
+      cur = {fuel: []};
+    }
+  });
+  return out;
+}
+function renderDriverHistory(){
+  const cutoff = Date.now() - KEEP_DAYS*864e5;
+  const saved = S.myJobs || [];
+  const rebuilt = jobsFromEvents(S.myEvents || []).filter(r => !saved.some(j => Math.abs(j.doneAt - r.doneAt) < 3*60000));
+  const list = saved.concat(rebuilt).filter(j => j.doneAt >= cutoff).sort((a,b) => b.doneAt - a.doneAt);
+  list.forEach(j => jobsById[j.id] = j);
+  const runMs = j => j.departAt && j.arriveAt && j.arriveAt >= j.departAt ? j.arriveAt - j.departAt : 0;
+  const L = list.reduce((a,j)=>a+(+j.fuelL||0),0), B = list.reduce((a,j)=>a+(+j.fuelB||0),0), R = list.reduce((a,j)=>a+runMs(j),0);
+  $('dHistSum').innerHTML = `<div class="sum"><b>${list.length}</b><span>งานที่จบ</span></div><div class="sum"><b>${R ? durShort(R) : '–'}</b><span>เวลาวิ่งรวม</span></div><div class="sum"><b>${num(L)}</b><span>ลิตร${B?` · ${num(B)} บ.`:''}</span></div>`;
+  $('dJobsDone').innerHTML = list.length ? list.map(j => {
+    const d = new Date(j.doneAt), run = runMs(j);
+    const runTxt = run ? (run < 60000 ? 'ไม่ถึง 1 นาที' : durShort(run)) : '–';
+    const span = j.departAt && j.arriveAt ? `${fmtT(j.departAt)} – ${fmtT(j.arriveAt)}` : '';
+    return `<button class="hjob" data-job="${esc(j.id)}">
+      <div class="hd"><span>${dayLbl(j.doneAt)} ${d.getDate()} ${TH_M[d.getMonth()]} ${d.getFullYear()+543}</span><span>จบงาน ${fmtT(j.doneAt)}</span></div>
+      <div class="rtline"><span style="color:var(--orange)">●</span> ${esc(j.originName||'–')} → <span style="color:var(--blue)">●</span> ${esc(j.destName||'–')}</div>
+      <div class="facts">
+        <div class="fact"><span>⏱ เวลาวิ่งจริง</span><b>${runTxt}</b>${span?`<span>${span}</span>`:''}</div>
+        <div class="fact"><span>⛽ น้ำมันที่ใช้</span><b>${j.fuelL ? `${num(j.fuelL)} ลิตร` : '–'}</b>${j.fuelB?`<span>${num(j.fuelB)} บาท</span>`:''}</div>
+      </div></button>`; }).join('') : '<div class="card empty">ยังไม่มีงานที่จบใน 35 วันนี้</div>';
+}
 
 /* admin: list + filters (listener started when the tab opens) */
 let doneUnsub = null, doneJobs = [];
