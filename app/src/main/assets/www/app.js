@@ -279,7 +279,7 @@ $('lgGo').onclick = async () => {
 function stopDriverHere(){
   if (!myTruck) return;
   call('stopTracking');
-  if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; } if (myJobsUnsub){ myJobsUnsub(); myJobsUnsub=null; }
+  if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; } if (myJobsUnsub){ myJobsUnsub(); myJobsUnsub=null; } if (myRepUnsub){ myRepUnsub(); myRepUnsub=null; }
   if (webWatch !== null){ try{ navigator.geolocation.clearWatch(webWatch); }catch(e){} webWatch = null; }
   myTruck = ''; ls.set('truck',''); ls.set('loginVer', 0);
 }
@@ -293,11 +293,16 @@ function driverLogout(msg){
 }
 
 /* ================= driver ================= */
-let cmdUnsub = null, myEvUnsub = null, myJobsUnsub = null, webWatch = null;
+let cmdUnsub = null, myEvUnsub = null, myJobsUnsub = null, myRepUnsub = null, webWatch = null;
 function driverStart(){
   if (!user || !myTruck) return;
   if (cmdUnsub) cmdUnsub(); if (myEvUnsub) myEvUnsub();
   cmdUnsub = db.doc('commands/'+myTruck).onSnapshot(d => { S.cmd = d.exists ? d.data() : null; checkCmd(); }, () => {});
+  if (myRepUnsub) myRepUnsub();
+  myRepUnsub = db.collection('reports').where('truck','==',myTruck).limit(100).onSnapshot(snap => {
+    S.myReports = snap.docs.map(d => d.data()).filter(r => r.at >= todayStart()).sort((a,b) => b.at - a.at);
+    if (dScreen==='report') renderReportAuto();
+  }, () => {});
   if (myJobsUnsub) myJobsUnsub();
   myJobsUnsub = db.collection('jobs').where('truck','==',myTruck).limit(200).onSnapshot(snap => {
     const cutoff = Date.now() - KEEP_DAYS*864e5;
@@ -733,9 +738,8 @@ function renderReportAuto(){
   $('rpNow').textContent = fmtT(Date.now());
   const g = freshGps();
   $('rpGps').innerHTML = g.loc ? `${(+g.loc.lat).toFixed(5)}, ${(+g.loc.lng).toFixed(5)}${g.loc.acc?` <span class="small muted">(±${Math.round(g.loc.acc)} ม.)</span>`:''}` : `<span style="color:var(--red)">${esc(g.err)}</span>`;
-  const today = new Date(new Date().toDateString()).getTime();
-  const mine = (S.myEvents||[]).filter(e => e.type === 'report' && e.at >= today);
-  $('rpMine').innerHTML = mine.length ? mine.map(e => `<div class="small" style="padding:6px 0;border-bottom:1px dashed var(--line)">${fmtT(e.at)} · ${esc(e.text)}</div>`).join('') : '<div class="small muted" style="padding:6px 0">ยังไม่ได้แจ้งวันนี้</div>';
+  const mine = (S.myReports||[]).filter(r => r.at >= todayStart());
+  $('rpMine').innerHTML = mine.length ? mine.map(r => `<div class="small" style="padding:6px 0;border-bottom:1px dashed var(--line)">${fmtT(r.at)} · <b>${esc(r.status)}</b> · ไป ${esc(r.destName)} · ถึง ${fmtDT(r.etaAt)}${r.note?` · ${esc(r.note)}`:''}</div>`).join('') : '<div class="small muted" style="padding:6px 0">ยังไม่ได้แจ้งวันนี้ (ล้างข้อมูลทุกเที่ยงคืน)</div>';
 }
 $('rpSend').onclick = async () => {
   const t = S.trucks[myTruck]; if (!t) return;
@@ -750,7 +754,6 @@ $('rpSend').onclick = async () => {
   $('rpSend').disabled = true;
   try {
     await db.collection('reports').add(rpt);
-    addEvent('report', `${rpStatus} · ไป ${destName} · ถึง ${fmtDT(d.getTime())}${note?` · ${note}`:''}`, '', g.loc);
     $('rpNote').value = ''; toast('ส่งแจ้งสถานะให้แอดมินแล้ว'); go('home');
   } catch(e){ toast('ส่งไม่สำเร็จ ตรวจอินเทอร์เน็ต'); }
   finally { $('rpSend').disabled = false; }
@@ -959,7 +962,7 @@ function renderAdmin(){
   $('atEv').hidden = aTab!=='ev'; $('atUsers').hidden = aTab!=='users'; $('atSet').hidden = aTab!=='set'; $('atDone').hidden = aTab!=='done';
   $('atSt').hidden = !aTab.startsWith('st-'); $('atFleet').hidden = aTab!=='fleet'; $('atRep').hidden = aTab!=='rep';
   startReports();
-  { const unread = reports.filter(r => r.at > repSeen()).length; $('repBadge').hidden = !unread || aTab==='rep'; $('repBadge').textContent = unread; }
+  { const unread = reports.filter(r => r.at > repSeen() && r.at >= todayStart()).length; $('repBadge').hidden = !unread || aTab==='rep'; $('repBadge').textContent = unread; }
   if (aTab==='rep') renderReports();
   STATUS_PAGES.forEach(g => { const el = $('cnt-'+g.key); if (el) el.textContent = ids.filter(id => g.match(S.trucks[id])).length; });
   if (aTab.startsWith('st-')) renderStatusPage(aTab.slice(3), sorted);
@@ -1203,7 +1206,7 @@ async function cleanupOld(){
       const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
     } catch(e){}
   };
-  await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at'); await purge('reports', 'at');
+  await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at');
 }
 
 /* ===== admin: assign a job (origin -> destination) ===== */
@@ -1328,11 +1331,26 @@ document.addEventListener('click', e => {
 });
 
 /* ===== admin: status reports from all trucks ===== */
-let reports = [], repUnsub = null, repReady = false;
+/* status reports are kept for the current day only: they reset at 00:00 */
+const todayStart = () => new Date(new Date().toDateString()).getTime();
+let reports = [], repUnsub = null, repReady = false, repDay = 0;
+async function purgeOldReports(){
+  try {
+    for (let i = 0; i < 5; i++){
+      const snap = await db.collection('reports').where('at', '<', todayStart()).limit(400).get();
+      if (snap.empty) break;
+      const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
+    }
+  } catch(e){}
+}
+setInterval(() => {   // past midnight: start the new day
+  if (repUnsub && repDay !== todayStart()){ repUnsub(); repUnsub = null; repReady = false; reports = []; startReports(); if (!$('scrAdmin').hidden) renderAdmin(); }
+}, 60000);
 function startReports(){
   if (repUnsub || !db || !user) return;
-  const cutoff = Date.now() - KEEP_DAYS*864e5;
-  repUnsub = db.collection('reports').where('at', '>=', cutoff).orderBy('at', 'desc').limit(500).onSnapshot(snap => {
+  repDay = todayStart();
+  if (role === 'admin') purgeOldReports();
+  repUnsub = db.collection('reports').where('at', '>=', repDay).orderBy('at', 'desc').limit(500).onSnapshot(snap => {
     const prevTop = reports[0] && reports[0].at;
     reports = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.at - a.at);
     // alert the admin for each new report that arrives while the app is open
@@ -1352,19 +1370,19 @@ function renderReports(){
   $('rpTruck').innerHTML = `<option value="">ทั้งหมด</option>` + Object.entries(S.trucks).sort((a,b)=>(a[1].plate||'').localeCompare(b[1].plate||'','th'))
     .map(([id,t]) => `<option value="${id}">${esc(t.plate)} · ${esc(t.driver)}</option>`).join('');
   $('rpTruck').value = sel;
-  const days = +$('rpRange').value, from = days === 1 ? new Date(new Date().toDateString()).getTime() : Date.now() - days*864e5;
-  const list = reports.filter(r => r.at >= from && (!sel || r.truck === sel)), seen = repSeen();
+  const d = new Date(); $('rpDate').textContent = `${d.getDate()} ${TH_M[d.getMonth()]} ${d.getFullYear()+543}`;
+  const list = reports.filter(r => r.at >= todayStart() && (!sel || r.truck === sel)), seen = repSeen();
   $('repList').innerHTML = list.length ? list.map(r => `<div class="rep${r.at > seen ? ' new' : ''}">
       <span class="ic" style="background:#123f95;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:#fff;flex:none">${ico('send')}</span>
       <div class="grow">
-        <div class="row between" style="gap:6px"><div><b>${esc(r.plate)}</b> <span class="small muted">· ${esc(r.driver)}</span></div><span class="small muted">${dayLbl(r.at)} ${fmtT(r.at)}</span></div>
+        <div class="row between" style="gap:6px"><div><b>${esc(r.plate)}</b> <span class="small muted">· ${esc(r.driver)}</span></div><span class="small muted">${fmtT(r.at)}</span></div>
         <div style="margin:3px 0"><span class="st">${esc(r.status)}</span> ไป <b>${esc(r.destName)}</b></div>
         <div class="small">ถึงประมาณ <b>${fmtDT(r.etaAt)}</b>${r.note?` · ${esc(r.note)}`:''}</div>
         <div class="small muted">GPS ${(+r.lat).toFixed(5)}, ${(+r.lng).toFixed(5)}${r.acc?` (±${r.acc} ม.)`:''} · <a href="https://www.google.com/maps?q=${(+r.lat).toFixed(6)},${(+r.lng).toFixed(6)}" target="_blank" rel="noopener">เปิดแผนที่</a> · <button class="ph" data-pick-truck="${esc(r.truck)}">ดูรถ</button></div>
-      </div></div>`).join('') : '<div class="empty">ยังไม่มีการแจ้งสถานะในช่วงนี้</div>';
+      </div></div>`).join('') : '<div class="empty">วันนี้ยังไม่มีการแจ้งสถานะ</div>';
   if (aTab === 'rep' && reports[0]) setTimeout(() => ls.set('repSeen', reports[0].at), 1500);   // mark as read after viewing
 }
-$('rpRange').onchange = renderReports; $('rpTruck').onchange = renderReports;
+$('rpTruck').onchange = renderReports;
 
 /* ===== completed-job summary per truck ===== */
 function renderFleet(){

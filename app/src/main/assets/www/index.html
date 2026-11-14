@@ -323,11 +323,9 @@
       <div id="atAl" class="card" hidden></div>
       <div id="atRep" class="stack" hidden>
         <div class="card pad stack">
-          <div class="row between" style="flex-wrap:wrap"><b class="sec">แจ้งสถานะจากคนขับ (ทุกคัน)</b><span class="small muted">ย้อนหลัง 35 วัน</span></div>
-          <div class="grid2">
-            <label class="f">ช่วงเวลา<span class="field"><select id="rpRange"><option value="1" selected>วันนี้</option><option value="7">7 วัน</option><option value="35">35 วัน</option></select><i data-i="down" class="dd"></i></span></label>
-            <label class="f">คนขับ / รถ<span class="field"><select id="rpTruck"><option value="">ทั้งหมด</option></select><i data-i="down" class="dd"></i></span></label>
-          </div>
+          <div class="row between" style="flex-wrap:wrap"><b class="sec">แจ้งสถานะจากคนขับ วันนี้ (ทุกคัน)</b><span class="small muted" id="rpDate"></span></div>
+          <p class="note" style="margin:0">เก็บถึงเที่ยงคืน (00:00 น.) แล้วล้างข้อมูลเริ่มวันใหม่อัตโนมัติ</p>
+          <label class="f">คนขับ / รถ<span class="field"><select id="rpTruck"><option value="">ทั้งหมด</option></select><i data-i="down" class="dd"></i></span></label>
         </div>
         <div class="card" id="repList"></div>
       </div>
