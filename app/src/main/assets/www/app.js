@@ -350,10 +350,22 @@ $('gpsAllow').onclick = () => { if (A && !call('hasLocation')) call('askLocation
 
 /* driver map (Leaflet) */
 let dMap = null, dMk = null, dLine = null, dDestMk = null;
-function tiles(map){
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19, subdomains:'abcd', attribution:'© OpenStreetMap © CARTO'
-  }).addTo(map);
+/* street map: OpenStreetMap, with Esri streets as a backup if OSM tiles fail to load */
+const TILE_SRC = [
+  {url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opt:{maxZoom:19, attribution:'© OpenStreetMap'}},
+  {url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', opt:{maxZoom:19, attribution:'© Esri, OpenStreetMap'}},
+];
+function tiles(map, i){
+  i = i == null ? ls.get('tileSrc', 0) : i;
+  const src = TILE_SRC[i] || TILE_SRC[0];
+  const layer = L.tileLayer(src.url, src.opt).addTo(map);
+  let errs = 0, oks = 0;
+  layer.on('tileload', () => { oks++; });
+  layer.on('tileerror', () => {
+    if (++errs >= 4 && oks === 0 && i + 1 < TILE_SRC.length){
+      map.removeLayer(layer); ls.set('tileSrc', i + 1); tiles(map, i + 1);
+    }
+  });
 }
 function truckIcon(color, label, alert, plate){
   return L.divIcon({className:'', iconSize:[40,50], iconAnchor:[20,46],
