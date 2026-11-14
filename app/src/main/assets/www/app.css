@@ -80,7 +80,7 @@ i[data-i]{display:inline-flex;width:22px;height:22px;flex:none} i[data-i] svg{wi
 .gps-pin{color:var(--green);width:26px!important;height:26px!important}
 #gpsTitle{color:var(--green)}
 .gps.off #gpsTitle{color:var(--amber)} .gps.off .gps-pin{color:var(--amber)}
-.dmap{height:150px;background:#e8eee4;border-top:1px solid var(--line)}
+.dmap{height:210px;background:#e8eee4;border-top:1px solid var(--line)}
 .map-fallback{height:100%;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;padding:10px}
 .job-strip{margin-top:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:var(--sh)}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
@@ -233,6 +233,22 @@ textarea.input{min-height:84px;resize:vertical}
 .pulse{position:absolute;left:4px;top:4px;width:32px;height:32px;border-radius:50%;background:var(--red);animation:pul 1.6s infinite}
 @keyframes pul{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(2.6)}}
 
+/* 3D map truck markers */
+.tm{position:relative;width:38px;height:38px;cursor:pointer}
+.tm-dot{position:absolute;inset:0;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.45);display:grid;place-items:center}
+.tm.sel .tm-dot{box-shadow:0 0 0 4px rgba(31,95,214,.45),0 2px 8px rgba(0,0,0,.45)}
+.tm-in{width:22px;height:22px;display:grid;place-items:center;color:#fff;transition:transform .4s}
+.tm-in svg{width:100%;height:100%}
+.tm-lbl{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);background:var(--red);color:#fff;font-size:12.5px;font-weight:800;padding:4px 9px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;gap:4px;align-items:center}
+.tm-lbl i{width:15px;height:15px}
+.tm-plate{position:absolute;left:50%;top:41px;transform:translateX(-50%);background:#fff;border:1.5px solid var(--navy);font-size:11px;font-weight:800;padding:0 5px;border-radius:5px;white-space:nowrap}
+.tm .pulse{left:3px;top:3px}
+.map-tools{position:absolute;left:10px;top:10px;z-index:2;display:flex;flex-direction:column;gap:6px}
+.map-btn{display:inline-flex;align-items:center;gap:6px;border:0;background:#fff;color:var(--navy);font-weight:700;font-size:13px;padding:7px 11px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.map-btn i{width:18px;height:18px}
+.map-btn.on{background:var(--blue);color:#fff}
+#dRecenter{position:absolute;right:10px;bottom:10px;z-index:2}
+
 /* command overlay */
 .ov{position:fixed;inset:0;z-index:60;background:rgba(8,16,36,.72);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:12px}
 .cmd-phone{background:linear-gradient(180deg,#1b3f8e,#10285e);border-radius:28px;padding:16px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px;align-items:center;box-shadow:0 10px 40px rgba(0,0,0,.45);border:4px solid #0b1d45}
@@ -251,7 +267,7 @@ textarea.input{min-height:84px;resize:vertical}
 .rec{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + var(--safe-b));z-index:70;background:var(--red);color:#fff;border-radius:16px;padding:12px 18px;display:flex;flex-direction:column;align-items:center;gap:2px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 .rec-dot{width:14px;height:14px;border-radius:50%;background:#fff;animation:pul 1s infinite}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + var(--safe-b));z-index:80;background:#0f1b33;color:#fff;padding:11px 16px;border-radius:12px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--sh)}
-.leaflet-container{font:inherit}
+.maplibregl-map{font:inherit}
 /* keep the map's own layers inside the map box, under menus and pop-ups */
 .dmap,.amap{position:relative;z-index:0;isolation:isolate}
 

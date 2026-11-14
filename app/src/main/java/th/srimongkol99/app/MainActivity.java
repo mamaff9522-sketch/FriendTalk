@@ -50,8 +50,6 @@ public class MainActivity extends Activity {
     private PermissionRequest pendingMic;
     private GeolocationPermissions.Callback geoCb;
     private String geoOrigin;
-    private TextToSpeech tts;
-    private boolean ttsReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -153,16 +151,10 @@ public class MainActivity extends Activity {
         web.loadUrl("https://" + HOST + "/assets/www/index.html");
 
         askStartupPerms();
-
-        tts = new TextToSpeech(this, st -> {
-            ttsReady = st == TextToSpeech.SUCCESS;
-            if (ttsReady) tts.setLanguage(new Locale("th", "TH"));
-        });
     }
 
     @Override
     protected void onDestroy() {
-        if (tts != null) tts.shutdown();
         super.onDestroy();
     }
 
@@ -227,7 +219,11 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         foreground = true;
-        TrackService.stopRing(this);
+        // keep a ring going: the page shows the ring screen and stops it when the driver taps "รับทราบ"
+        try {
+            ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(2);
+        } catch (Exception ignored) {
+        }
         if (web != null) web.evaluateJavascript("window.onAndroidResume&&window.onAndroidResume()", null);
     }
 
@@ -294,9 +290,17 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void speak(final String text) {
-            runOnUiThread(() -> {
-                if (tts != null && ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ann");
-            });
+            runOnUiThread(() -> Loud.speak(MainActivity.this, text));
+        }
+
+        @JavascriptInterface
+        public void playClip(final String dataUrl) {
+            runOnUiThread(() -> Loud.playClip(MainActivity.this, dataUrl));
+        }
+
+        @JavascriptInterface
+        public boolean isRinging() {
+            return Loud.isPlaying();
         }
 
         @JavascriptInterface

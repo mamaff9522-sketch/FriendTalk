@@ -23,15 +23,12 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Download web libraries (Leaflet map, Firebase)
+      - name: Download web libraries (3D map, Firebase)
         run: |
           L=app/src/main/assets/www/lib
-          mkdir -p $L/images
-          curl -fsSL -o $L/leaflet.js  https://unpkg.com/leaflet@1.9.4/dist/leaflet.js
-          curl -fsSL -o $L/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css
-          for f in marker-icon.png marker-icon-2x.png marker-shadow.png layers.png layers-2x.png; do
-            curl -fsSL -o $L/images/$f https://unpkg.com/leaflet@1.9.4/dist/images/$f
-          done
+          mkdir -p $L
+          curl -fsSL -o $L/maplibre-gl.js  https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js
+          curl -fsSL -o $L/maplibre-gl.css https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css
           for f in app auth firestore; do
             curl -fsSL -o $L/firebase-$f-compat.js https://www.gstatic.com/firebasejs/10.12.2/firebase-$f-compat.js
           done

@@ -158,6 +158,7 @@ function boot(){
   signIn();
   route();
   setInterval(() => { if (role==='admin' && !$('scrAdmin').hidden) renderAdmin(); else if (role==='driver') renderDriver(); }, 30000);
+  setInterval(() => { if (role==='driver' && myTruck && dScreen==='home' && !document.hidden && S.trucks[myTruck]) updateDriverMap(S.trucks[myTruck]); }, 3000);
   window.addEventListener('online', () => renderDriver());
   window.addEventListener('offline', () => renderDriver());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkCmd(); });
@@ -194,7 +195,9 @@ function startData(){
     renderAll();
   }, () => {}));
   unsub.push(db.collection('places').onSnapshot(snap => { const p={}; snap.forEach(d => p[d.id]=d.data()); S.places=p; renderAll(); }, () => {}));
-  unsub.push(db.doc('config/main').onSnapshot(d => { S.config = d.exists ? d.data() : {}; thr = +(S.config.thr||30); renderAll(); }, () => { S.config = {}; }));
+  unsub.push(db.doc('config/main').onSnapshot(d => { const prev = S.config && S.config.liveSec; S.config = d.exists ? d.data() : {}; thr = +(S.config.thr||30);
+    if (role==='driver' && myTruck && prev !== undefined && prev !== S.config.liveSec) startTracking();
+    renderAll(); }, () => { S.config = {}; }));
   unsub.push(db.collection('events').orderBy('at','desc').limit(120).onSnapshot(snap => {
     S.events = snap.docs.map(d => Object.assign({id:d.id}, d.data())); renderAll();
   }, () => {}));
@@ -220,7 +223,7 @@ document.addEventListener('click', e => {
     if (k==='start'){ role=''; ls.set('role',''); show('scrStart'); return; }
     go(k); return; }
   const t = e.target.closest('[data-tab]'); if (t){ closeDrawer(); goTab(t.dataset.tab); return; }
-  const a = e.target.closest('[data-at]'); if (a){ aTab = a.dataset.at; closeSide(); renderAdmin(); window.scrollTo({top:0}); if (aTab==='ov') setTimeout(()=>aMap&&aMap.invalidateSize(),60); return; }
+  const a = e.target.closest('[data-at]'); if (a){ aTab = a.dataset.at; closeSide(); renderAdmin(); window.scrollTo({top:0}); if (aTab==='ov') setTimeout(()=>aMap&&aMap.resize(),60); return; }
   const ph = e.target.closest('[data-photo]'); if (ph){ openPhoto(ph.dataset.photo); return; }
 });
 
@@ -265,7 +268,7 @@ function driverLogout(msg){
   call('stopTracking'); myTruck=''; ls.set('truck',''); ls.set('loginVer', 0);
   if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; }
   if (webWatch !== null){ try{ navigator.geolocation.clearWatch(webWatch); }catch(e){} webWatch = null; }
-  if (dMap){ dMap.remove(); dMap=null; dMk=null; dLine=null; dDestMk=null; updateDriverMap.fit=false; updateDriverMap.centered=false; }
+  if (dMap){ dMap.remove(); dMap=null; dMk=null; dDestMk=null; dFollow=true; }
   closeDrawer(); $('lgUser').value = ls.get('loginUser','');
   show('scrPick'); renderPick(); if (msg) toast(msg);
 }
@@ -286,7 +289,7 @@ function startTracking(){
   if (!user || !myTruck) return;
   if (A){
     if (!call('hasLocation')) { call('askLocation'); return; }
-    call('startTracking', JSON.stringify({truckId: myTruck, apiKey: fbCfg.apiKey, projectId: fbCfg.projectId, refreshToken: user.refreshToken}));
+    call('startTracking', JSON.stringify({truckId: myTruck, apiKey: fbCfg.apiKey, projectId: fbCfg.projectId, refreshToken: user.refreshToken, liveSec: liveSec()}));
   } else if (navigator.geolocation && webWatch === null){
     // browser fallback (testing without the APK): send position while the page is open
     let lastW = 0, anchor = null, lastMove = Date.now(), moving = false;
@@ -297,8 +300,8 @@ function startTracking(){
       let force = false;
       if (!anchor || dist > 80){ anchor = {lat,lng}; lastMove = now; force = moving === false && dist > 80; moving = dist > 80 || moving; }
       if (moving && now - lastMove > 180000){ moving = false; force = true; }
-      if (force || now - lastW > 60000){ lastW = now;
-        db.doc('trucks/'+myTruck).update({lat, lng, acc:p.coords.accuracy, gpsAt:now, lastMoveAt:lastMove, moving, gpsSrc:'web'}).catch(()=>{}); }
+      if (force || now - lastW > (moving ? liveSec()*1000 : 120000)){ lastW = now;
+        db.doc('trucks/'+myTruck).update({lat, lng, acc:p.coords.accuracy, gpsAt:now, lastMoveAt:lastMove, moving, speed:(p.coords.speed||0)*3.6, heading: p.coords.heading==null||isNaN(p.coords.heading)?-1:p.coords.heading, gpsSrc:'web'}).catch(()=>{}); }
     }, () => {}, {enableHighAccuracy:true, maximumAge:15000});
   }
 }
@@ -350,7 +353,9 @@ function renderDriver(){
   $('gpsTitle').textContent = !hasPerm ? 'ยังไม่ได้อนุญาต GPS' : tracking ? 'GPS กำลังติดตาม' : 'GPS ยังไม่ทำงาน';
   $('gpsAllow').hidden = hasPerm && tracking;
   $('gpsAllow').textContent = hasPerm ? 'เริ่มติดตาม' : 'อนุญาต GPS';
-  $('gpsSub').textContent = t.gpsAt ? `อัปเดตล่าสุด: ${fmtT(t.gpsAt)}${t.moving ? ' · กำลังวิ่ง' : ''}` : 'รอสัญญาณ GPS…';
+  { const l = lastLoc(), fresh = l && Date.now()-(l.at||0) < 60000;
+    const kmh = fresh ? Math.round(l.kmh||0) : (t.moving ? Math.round(t.speed||0) : 0);
+    $('gpsSub').textContent = (fresh || t.gpsAt) ? `อัปเดตล่าสุด: ${fmtT(fresh ? l.at : t.gpsAt)} · ${kmh} กม./ชม.` : 'รอสัญญาณ GPS…'; }
   updateDriverMap(t);
 
   // job strip
@@ -384,49 +389,99 @@ function closeDrawer(){ $('dDrawer').hidden = true; $('dDrawerBg').hidden = true
 $('dDrawerBg').onclick = closeDrawer;
 $('gpsAllow').onclick = () => { if (A && !call('hasLocation')) call('askLocation'); else startTracking(); setTimeout(renderDriver, 800); };
 
-/* driver map (Leaflet) */
-let dMap = null, dMk = null, dLine = null, dDestMk = null;
-/* street map: OpenStreetMap, with Esri streets as a backup if OSM tiles fail to load */
-const TILE_SRC = [
-  {url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opt:{maxZoom:19, attribution:'© OpenStreetMap'}},
-  {url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', opt:{maxZoom:19, attribution:'© Esri, OpenStreetMap'}},
-];
-function tiles(map, i){
-  i = i == null ? ls.get('tileSrc', 0) : i;
-  const src = TILE_SRC[i] || TILE_SRC[0];
-  const layer = L.tileLayer(src.url, src.opt).addTo(map);
-  let errs = 0, oks = 0;
-  layer.on('tileload', () => { oks++; });
-  layer.on('tileerror', () => {
-    if (++errs >= 4 && oks === 0 && i + 1 < TILE_SRC.length){
-      map.removeLayer(layer); ls.set('tileSrc', i + 1); tiles(map, i + 1);
-    }
-  });
+/* ================= 3D real-time map (MapLibre) ================= */
+const STYLE_3D = 'https://tiles.openfreemap.org/styles/liberty';
+const RASTER_STYLE = {version:8, sources:{osm:{type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, maxzoom:19, attribution:'© OpenStreetMap'}}, layers:[{id:'osm', type:'raster', source:'osm'}]};
+const ll = o => [+o.lng, +o.lat];
+function makeMap(el, center, zoom, pitch){
+  if (!window.maplibregl){ $(el).innerHTML = '<div class="map-fallback">โหลดแผนที่ไม่ได้ (ตรวจอินเทอร์เน็ต)</div>'; return null; }
+  let map;
+  try {
+    map = new maplibregl.Map({container: el, style: STYLE_3D, center, zoom, pitch, maxPitch: 75, attributionControl: {compact: true}, dragRotate: true});
+  } catch(e){ $(el).innerHTML = '<div class="map-fallback">มือถือเครื่องนี้แสดงแผนที่ 3D ไม่ได้</div>'; return null; }
+  let ok = false;
+  map.on('load', () => { ok = true; });
+  // if the 3D street style cannot load, fall back to the plain OpenStreetMap picture
+  setTimeout(() => { if (!ok && !map._fell){ map._fell = true; map.setStyle(RASTER_STYLE); } }, 9000);
+  map.on('error', () => { if (!ok && !map._fell){ map._fell = true; map.setStyle(RASTER_STYLE); } });
+  return map;
 }
-function truckIcon(color, label, alert, plate){
-  return L.divIcon({className:'', iconSize:[40,50], iconAnchor:[20,46],
-    html:`<div class="mk">${alert?'<span class="pulse"></span>':''}<div class="mk-pin" style="background:${color}">${ico('truck')}</div>${label?`<div class="mk-lbl">${ico('warn')}${esc(label)}</div>`:''}${plate?`<div class="mk-plate">${esc(plate)}</div>`:''}</div>`});
+/* a truck marker: coloured disc with an arrow that points where the truck is heading */
+function truckEl(){
+  const el = document.createElement('div'); el.className = 'tm';
+  el.innerHTML = '<span class="pulse" hidden></span><div class="tm-lbl" hidden></div><div class="tm-dot"><div class="tm-in"></div></div><div class="tm-plate" hidden></div>';
+  return el;
 }
-const destIcon = () => L.divIcon({className:'', iconSize:[16,16], iconAnchor:[8,8], html:'<div class="mk-dest"></div>'});
+function paintTruck(el, {color, heading, label, alert, plate, bearing, selected}){
+  el.querySelector('.tm-dot').style.background = color;
+  el.classList.toggle('sel', !!selected);
+  const inner = el.querySelector('.tm-in');
+  const hasDir = heading != null && heading >= 0;
+  const want = hasDir ? 'arrow' : 'truck';
+  if (inner.dataset.k !== want){ inner.dataset.k = want; inner.innerHTML = hasDir ? '<svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21z" fill="#fff"/></svg>' : IC.truck; }
+  inner.style.transform = hasDir ? `rotate(${heading - (bearing||0)}deg)` : '';
+  const lb = el.querySelector('.tm-lbl'); lb.hidden = !label; if (label) lb.innerHTML = ico('warn') + esc(label);
+  el.querySelector('.pulse').hidden = !alert;
+  const pl = el.querySelector('.tm-plate'); pl.hidden = !plate; if (plate) pl.textContent = plate;
+}
+/* glide a marker to its new position so movement looks live */
+function glide(marker, to, ms){
+  const from = marker.getLngLat(); if (!from){ marker.setLngLat(to); return; }
+  const dx = to[0]-from.lng, dy = to[1]-from.lat;
+  if (Math.abs(dx) + Math.abs(dy) > 0.05 || ms <= 0){ marker.setLngLat(to); return; }   // far jump: no animation
+  cancelAnimationFrame(marker._raf); const t0 = performance.now();
+  const step = now => { const k = Math.min(1, (now - t0) / ms), e = k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
+    marker.setLngLat([from.lng + dx*e, from.lat + dy*e]); if (k < 1) marker._raf = requestAnimationFrame(step); };
+  marker._raf = requestAnimationFrame(step);
+}
+const liveSec = () => Math.max(2, Math.min(60, +((S.config && S.config.liveSec) || 5)));
+function setLine(map, id, coords){
+  if (!map || !map.isStyleLoaded()) return;
+  const data = {type:'Feature', geometry:{type:'LineString', coordinates: coords || []}};
+  const src = map.getSource(id);
+  if (src) src.setData(data);
+  else { map.addSource(id, {type:'geojson', data}); map.addLayer({id, type:'line', source:id, paint:{'line-color':'#1f5fd6', 'line-width':5, 'line-dasharray':[1.5,1.2]}}); }
+}
+
+/* driver map: follows the driver's own truck, turned to the driving direction */
+let dMap = null, dMk = null, dDestMk = null, dFollow = true;
 function updateDriverMap(t){
-  if (!window.L){ if (!$('dMap').innerHTML) $('dMap').innerHTML = '<div class="map-fallback">โหลดแผนที่ไม่ได้ (ตรวจอินเทอร์เน็ต)</div>'; return; }
-  const pos = t.lat != null ? [t.lat, t.lng] : (lastLoc() ? [lastLoc().lat, lastLoc().lng] : null);
+  const l = lastLoc();
+  const fresh = l && Date.now() - (l.at||0) < 60000;
+  const pos = fresh ? l : (t.lat != null ? t : l);
   if (!dMap){
-    dMap = L.map('dMap', {zoomControl:false, attributionControl:true, dragging:true}).setView(pos || DEFAULT_CENTER, pos ? 13 : 10);
-    tiles(dMap);
+    dMap = makeMap('dMap', pos ? ll(pos) : [DEFAULT_CENTER[1], DEFAULT_CENTER[0]], pos ? 15.5 : 10, 55);
+    if (!dMap) return;
+    dMap.on('dragstart', () => { dFollow = false; $('dRecenter') && ($('dRecenter').hidden = false); });
+    dMap.on('rotate', () => { if (dMk) updateDriverMarker(); });
+    dMap.on('styledata', () => updateDriverMap._line && setLine(dMap, 'route', updateDriverMap._line));
+    const btn = document.createElement('button'); btn.id = 'dRecenter'; btn.className = 'map-btn'; btn.hidden = true; btn.innerHTML = ico('gps') + 'ตามรถ';
+    btn.onclick = () => { dFollow = true; btn.hidden = true; updateDriverMap(S.trucks[myTruck] || {}); };
+    $('dMap').appendChild(btn);
   }
-  if (pos){
-    if (!dMk) dMk = L.marker(pos, {icon: truckIcon('#1f5fd6')}).addTo(dMap); else dMk.setLatLng(pos);
-  }
+  if (!pos) return;
+  const heading = fresh && l.heading != null ? l.heading : (t.heading != null ? t.heading : -1);
+  const moving = fresh ? (l.kmh||0) >= 6 : !!t.moving;
+  updateDriverMap._st = {heading: moving ? heading : (heading>=0?heading:-1)};
+  if (!dMk){ dMk = new maplibregl.Marker({element: truckEl(), anchor:'center'}).setLngLat(ll(pos)).addTo(dMap); }
+  else glide(dMk, ll(pos), 1500);
+  updateDriverMarker();
   const d = t.destId && S.places[t.destId];
-  if (dLine){ dMap.removeLayer(dLine); dLine = null; }
-  if (dDestMk){ dMap.removeLayer(dDestMk); dDestMk = null; }
-  if (pos && d && d.lat != null){
-    dLine = L.polyline([pos, [d.lat, d.lng]], {color:'#1f5fd6', weight:4, dashArray:'8 8'}).addTo(dMap);
-    dDestMk = L.marker([d.lat, d.lng], {icon: destIcon()}).addTo(dMap);
-    if (!updateDriverMap.fit){ dMap.fitBounds(dLine.getBounds(), {padding:[24,24]}); updateDriverMap.fit = true; }
-  } else if (pos && !updateDriverMap.centered){ dMap.setView(pos, 14); updateDriverMap.centered = true; }
-  setTimeout(() => dMap.invalidateSize(), 50);
+  updateDriverMap._line = (d && d.lat != null) ? [ll(pos), ll(d)] : [];
+  setLine(dMap, 'route', updateDriverMap._line);
+  if (d && d.lat != null){
+    if (!dDestMk){ const e = document.createElement('div'); e.className = 'mk-dest'; dDestMk = new maplibregl.Marker({element:e}).setLngLat(ll(d)).addTo(dMap); }
+    else dDestMk.setLngLat(ll(d));
+  } else if (dDestMk){ dDestMk.remove(); dDestMk = null; }
+  if (dFollow){
+    const opt = {center: ll(pos), duration: 1200};
+    if (moving && heading >= 0){ opt.bearing = heading; opt.pitch = 60; opt.zoom = Math.max(dMap.getZoom(), 16); }
+    dMap.easeTo(opt);
+  }
+}
+function updateDriverMarker(){
+  if (!dMk) return;
+  paintTruck(dMk.getElement(), {color:'#1f5fd6', heading: (updateDriverMap._st||{}).heading, bearing: dMap.getBearing()});
 }
 
 /* standby */
@@ -461,7 +516,7 @@ $('sbSave').onclick = async () => {
   if (l){ patch.standbyLat = l.lat; patch.standbyLng = l.lng; }
   await writeTruck(patch);
   addEvent('standby', `${destName} · นัดถึง ${fmtDT(d.getTime())}`, '', l);
-  updateDriverMap.fit = false;
+  dFollow = true;
   toast('บันทึกสแตนบายแล้ว'); go('home');
 };
 
@@ -629,13 +684,16 @@ function seenNonce(){ return (A ? call('lastNonce') : '') || ls.get('lastNonce',
 function markSeen(n){ call('markSeen', n); ls.set('lastNonce', n); }
 function checkCmd(){
   const c = S.cmd; if (!c || role!=='driver' || document.hidden) return;
-  if (!c.nonce || c.nonce === seenNonce()) return;
+  if (c.nonce && c.nonce === seenNonce()){
+    if (c.type === 'ring' && call('isRinging') && $('cmdOv').hidden){ showCmd(c, true); }
+    return;
+  }
   if (Date.now() - (c.at||0) > 10*60000) { markSeen(c.nonce); return; }
   markSeen(c.nonce);
   showCmd(c);
 }
 let ovTimer = null, beepTimer = null, actx = null;
-function showCmd(c){
+function showCmd(c, alreadyRinging){
   const ring = c.type === 'ring';
   $('cmdBell').hidden = !ring; $('cmdMic').hidden = ring;
   $('cmdMsg').hidden = ring || !c.text; $('cmdMsg').textContent = c.text || '';
@@ -645,9 +703,10 @@ function showCmd(c){
   try { navigator.vibrate && navigator.vibrate(ring ? [500,250,500,250,500] : [200]); } catch(e){}
   clearTimeout(ovTimer);
   if (ring){
-    if (A && A.ring) call('ring'); else beepLoop();
+    if (A && A.ring){ if (!alreadyRinging) call('ring'); } else beepLoop();
   } else {
-    if (c.audio){ try { audioEl && audioEl.pause(); audioEl = new Audio(c.audio); audioEl.play().catch(()=>{}); audioEl.onended = () => { ovTimer = setTimeout(closeCmd, 2500); }; } catch(e){} }
+    if (c.audio && A && A.playClip){ call('playClip', c.audio); ovTimer = setTimeout(closeCmd, 30000); }
+    else if (c.audio){ try { audioEl && audioEl.pause(); audioEl = new Audio(c.audio); audioEl.volume = 1; audioEl.play().catch(()=>{}); audioEl.onended = () => { ovTimer = setTimeout(closeCmd, 2500); }; } catch(e){} }
     else if (c.text){ if (A && A.speak) call('speak', c.text); else speakWeb(c.text); ovTimer = setTimeout(closeCmd, Math.max(8000, c.text.length*280)); }
     ovTimer = ovTimer || setTimeout(closeCmd, 30000);
   }
@@ -706,26 +765,59 @@ function closeSide(){ $('aSide').classList.remove('open'); $('aSideBg').hidden =
 $('aMenuBtn').onclick = () => { $('aSide').classList.add('open'); $('aSideBg').hidden = false; };
 $('aSideBg').onclick = closeSide;
 
-let aMap = null; const aMarkers = {};
+let aMap = null, aFollow = false; const aMarkers = {};
 function initAdminMap(){
-  if (aMap || !window.L || $('scrAdmin').hidden) { if(!window.L && !$('aMap').innerHTML) $('aMap').innerHTML = '<div class="map-fallback">โหลดแผนที่ไม่ได้ (ตรวจอินเทอร์เน็ต)</div>'; return; }
-  aMap = L.map('aMap', {zoomControl:true}).setView(DEFAULT_CENTER, 10);
-  tiles(aMap);
-  renderAdmin();
-  const pts = Object.values(S.trucks).filter(t => t.lat != null).map(t => [t.lat, t.lng]);
-  if (pts.length) aMap.fitBounds(pts, {padding:[40,40], maxZoom:13});
-}
-function updateAdminMap(sorted){
+  if (aMap || $('scrAdmin').hidden) return;
+  const pts = Object.values(S.trucks).filter(t => t.lat != null);
+  aMap = makeMap('aMap', pts.length ? ll(pts[0]) : [DEFAULT_CENTER[1], DEFAULT_CENTER[0]], pts.length ? 11 : 9, 50);
   if (!aMap) return;
+  aMap.addControl(new maplibregl.NavigationControl({visualizePitch: true}), 'top-right');
+  aMap.on('rotate', () => updateAdminMap(null, true));
+  aMap.on('dragstart', () => { if (aFollow){ aFollow = false; paintFollowBtn(); } });
+  const bar = document.createElement('div'); bar.className = 'map-tools';
+  bar.innerHTML = `<button class="map-btn" id="mFollow">${ico('gps')}ตามรถที่เลือก</button><button class="map-btn" id="m3d">2D</button><button class="map-btn" id="mAll">${ico('truck')}ดูทุกคัน</button>`;
+  $('aMap').appendChild(bar);
+  $('mFollow').onclick = () => { aFollow = !aFollow; paintFollowBtn(); if (aFollow) followSel(true); };
+  $('m3d').onclick = () => { const flat = aMap.getPitch() > 5; aMap.easeTo({pitch: flat ? 0 : 55, bearing: flat ? 0 : aMap.getBearing()}); $('m3d').textContent = flat ? '3D' : '2D'; };
+  $('mAll').onclick = () => { aFollow = false; paintFollowBtn(); fitAll(); };
+  aMap.on('load', () => { fitAll(); renderAdmin(); });
+  renderAdmin();
+}
+function paintFollowBtn(){ const b = $('mFollow'); if (b) b.classList.toggle('on', aFollow); }
+function fitAll(){
+  const pts = Object.values(S.trucks).filter(t => t.lat != null).map(ll);
+  if (!aMap || !pts.length) return;
+  if (pts.length === 1){ aMap.easeTo({center: pts[0], zoom: 15, pitch: 55}); return; }
+  const b = new maplibregl.LngLatBounds(pts[0], pts[0]); pts.forEach(p => b.extend(p));
+  aMap.fitBounds(b, {padding: 60, maxZoom: 14, pitch: 50});
+}
+function followSel(first){
+  const t = selTruck && S.trucks[selTruck]; if (!aMap || !t || t.lat == null) return;
+  const opt = {center: ll(t), duration: first ? 1500 : 1200};
+  if (first){ opt.zoom = Math.max(aMap.getZoom(), 16); opt.pitch = 60; }
+  if (t.moving && t.heading >= 0) opt.bearing = t.heading;
+  aMap.easeTo(opt);
+}
+function updateAdminMap(sorted, onlyRotate){
+  if (!aMap) return;
+  const bearing = aMap.getBearing();
+  sorted = sorted || Object.keys(aMarkers);
   const live = new Set();
-  sorted.forEach(id => { const t = S.trucks[id]; if (t.lat == null) return; live.add(id);
-    const al = isAlert(t), color = al ? '#e0352b' : (ST[t.status]||ST.idle).pin;
-    const key = `${color}|${al?alertText(t):''}|${t.plate}|${selTruck===id}`;
-    const icon = truckIcon(color, al ? alertText(t) : '', al, (t.plate||'').split(' ')[0]);
-    if (!aMarkers[id]){ aMarkers[id] = L.marker([t.lat, t.lng], {icon, zIndexOffset: al?1000:0}).addTo(aMap); aMarkers[id].on('click', () => { selTruck = id; renderAdmin(); }); aMarkers[id]._k = key; }
-    else { aMarkers[id].setLatLng([t.lat, t.lng]); if (aMarkers[id]._k !== key){ aMarkers[id].setIcon(icon); aMarkers[id].setZIndexOffset(al?1000:0); aMarkers[id]._k = key; } }
+  sorted.forEach(id => { const t = S.trucks[id]; if (!t || t.lat == null) return; live.add(id);
+    const al = isAlert(t), color = al ? '#e0352b' : (online(t) ? (ST[t.status]||ST.idle).pin : '#8b97ad');
+    let m = aMarkers[id];
+    if (!m){
+      m = aMarkers[id] = new maplibregl.Marker({element: truckEl(), anchor:'center'}).setLngLat(ll(t)).addTo(aMap);
+      m.getElement().addEventListener('click', ev => { ev.stopPropagation(); selTruck = id; renderAdmin(); if (aFollow) followSel(true); });
+    } else if (!onlyRotate && (m._lat !== t.lat || m._lng !== t.lng)) glide(m, ll(t), Math.min(liveSec()*1000, 3000));
+    m._lat = t.lat; m._lng = t.lng;
+    paintTruck(m.getElement(), {color, heading: t.moving ? t.heading : (t.heading >= 0 ? t.heading : -1), bearing,
+      label: al ? alertText(t) : '', alert: al, plate: (t.plate||'').split(' ')[0], selected: id === selTruck});
+    m.getElement().style.zIndex = al ? 3 : (id === selTruck ? 2 : 1);
   });
-  Object.keys(aMarkers).forEach(id => { if (!live.has(id)){ aMap.removeLayer(aMarkers[id]); delete aMarkers[id]; } });
+  if (onlyRotate) return;
+  Object.keys(aMarkers).forEach(id => { if (!live.has(id)){ aMarkers[id].remove(); delete aMarkers[id]; } });
+  if (aFollow) followSel(false);
 }
 
 function renderAdmin(){
@@ -772,7 +864,7 @@ function renderAdmin(){
     const pl = placeList();
     $('pList').innerHTML = pl.length ? pl.map(([id,p]) => `<div class="al-item" style="padding:10px 0">${ico('factory')}<div class="grow"><b>${esc(p.name)}</b><div class="small muted">${p.lat!=null?`${(+p.lat).toFixed(4)}, ${(+p.lng).toFixed(4)}`:'ไม่มีพิกัด'}</div></div><button class="btn btn-ghost btn-sm" data-pdel="${id}">ลบ</button></div>`).join('') : '<div class="small muted">ยังไม่มีปลายทาง</div>';
   }
-  if (aTab==='set'){ $('thrSel').value = String(thr); }
+  if (aTab==='set'){ $('thrSel').value = String(thr); $('liveSel').value = String(liveSec()); }
   paintIcons($('scrAdmin'));
 }
 
@@ -786,7 +878,8 @@ function renderSel(){
     <div class="sel-truck"><span class="tk">${IC.bigtruck}</span><div class="grow"><b class="pl">${esc(t.plate)}</b><div>คนขับ: ${esc(t.driver)}</div></div><span class="chip ${on?'c-green':''}">${on?'ออนไลน์':'ออฟไลน์'}</span></div>
     <div class="pad" style="padding-bottom:0"><div class="autobox" style="margin:0">
       <div class="kv">${ico('factory')}<span>ปลายทาง</span><b>: ${esc(t.destName||'–')}${t.etaAt?` · นัด ${fmtDT(t.etaAt)}`:''}</b></div>
-      <div class="kv">${ico('pin')}<span>GPS ล่าสุด</span><b>: ${t.gpsAt?`${fmtT(t.gpsAt)} (${durTxt(mins(t.gpsAt))}ที่แล้ว)`:'–'}${t.lat!=null?` · <a href="https://www.google.com/maps?q=${(+t.lat).toFixed(6)},${(+t.lng).toFixed(6)}" target="_blank" rel="noopener">เปิดแผนที่</a>`:''}</b></div>
+      <div class="kv">${ico('gps')}<span>ความเร็ว</span><b>: <span class="spd">${t.moving ? Math.round(t.speed||0) : 0}</span> กม./ชม. ${t.moving?'<span class="chip c-green">กำลังวิ่ง</span>':'<span class="chip">จอดอยู่</span>'}</b></div>
+      <div class="kv">${ico('pin')}<span>GPS ล่าสุด</span><b>: ${t.gpsAt?`<span id="selAgo" data-at="${t.gpsAt}">${agoTxt(t.gpsAt)}</span>`:'–'}${t.lat!=null?` · <a href="https://www.google.com/maps?q=${(+t.lat).toFixed(6)},${(+t.lng).toFixed(6)}" target="_blank" rel="noopener">เปิดแผนที่</a>`:''}</b></div>
       <div class="kv">${ico('clock')}<span>ขยับล่าสุด</span><b>: ${t.lastMoveAt?`${fmtT(t.lastMoveAt)} (${durTxt(mins(t.lastMoveAt))}ที่แล้ว)`:'–'}</b></div>
       ${fuelOf(t).length?`<div class="kv">${ico('fuel')}<span>เติมน้ำมัน</span><b>: ${esc(fuelSumTxt(fuelOf(t)))}</b></div>`:''}
     </div></div>
@@ -801,8 +894,8 @@ function renderSel(){
 }
 
 document.addEventListener('click', async e => {
-  const s = e.target.closest('[data-sel]'); if (s){ selTruck = s.dataset.sel; renderAdmin(); const t=S.trucks[selTruck]; if (aMap && t && t.lat!=null) aMap.panTo([t.lat,t.lng]); if (innerWidth<=820) $('selCard').scrollIntoView({behavior:'smooth', block:'start'}); return; }
-  const g = e.target.closest('[data-goto]'); if (g){ selTruck = g.dataset.goto; aTab='ov'; renderAdmin(); setTimeout(()=>{ aMap&&aMap.invalidateSize(); const t=S.trucks[selTruck]; if (aMap && t && t.lat!=null) aMap.setView([t.lat,t.lng], 14); }, 60); return; }
+  const s = e.target.closest('[data-sel]'); if (s){ selTruck = s.dataset.sel; renderAdmin(); const t=S.trucks[selTruck]; if (aMap && t && t.lat!=null) aMap.easeTo({center: ll(t), duration: 800}); if (innerWidth<=820) $('selCard').scrollIntoView({behavior:'smooth', block:'start'}); return; }
+  const g = e.target.closest('[data-goto]'); if (g){ selTruck = g.dataset.goto; aTab='ov'; renderAdmin(); setTimeout(()=>{ if(!aMap) return; aMap.resize(); const t=S.trucks[selTruck]; if (t && t.lat!=null) aMap.flyTo({center: ll(t), zoom: 16, pitch: 60}); }, 60); return; }
   if (e.target.closest('#cRing')){ sendCmd(selTruck, {type:'ring'}); return; }
   if (e.target.closest('#saySend')){ const txt = $('sayTxt').value.trim(); if (!txt){ toast('พิมพ์ข้อความก่อน'); return; } sendCmd(selTruck, {type:'announce', text:txt}); $('sayTxt').value=''; return; }
   const c = e.target.closest('#cCall'); if (c){ const t = S.trucks[selTruck]; if (!t || !t.phone){ e.preventDefault(); toast('ยังไม่มีเบอร์คนขับ เพิ่มได้ที่ “จัดการผู้ใช้งาน”'); } else if (A){ e.preventDefault(); call('openUrl', telHref(t.phone)); } return; }
@@ -823,6 +916,10 @@ function sendCmd(id, cmd){
   }).catch(() => toast('ส่งไม่สำเร็จ ตรวจอินเทอร์เน็ต'));
   addEvent(cmd.type, cmd.type==='announce' ? (cmd.text || 'ข้อความเสียง') : '', '', null, id);
 }
+
+/* "x seconds ago" that ticks every second for the selected truck */
+function agoTxt(ms){ const s = Math.max(0, Math.round((Date.now()-ms)/1000)); return s < 60 ? `${s} วินาทีที่แล้ว` : s < 3600 ? `${Math.floor(s/60)} นาทีที่แล้ว` : `${fmtT(ms)}`; }
+setInterval(() => { const el = $('selAgo'); if (el && !$('scrAdmin').hidden) el.textContent = agoTxt(+el.dataset.at); }, 1000);
 
 /* hold-to-talk */
 let rec = null, recChunks = [], recStart = 0, recTimer = null, recCancel = false, micStream = null;
@@ -931,6 +1028,7 @@ $('pAdd').onclick = async () => {
   const data = {name, createdAt:Date.now()}; if (loc){ data.lat = loc.lat; data.lng = loc.lng; }
   try { await db.collection('places').add(data); $('pName').value=''; $('pLoc').value=''; toast('เพิ่มปลายทางแล้ว'); } catch(e){ toast('เพิ่มไม่สำเร็จ'); }
 };
+$('liveSel').onchange = e => { db.doc('config/main').set({liveSec:+e.target.value}, {merge:true}).then(()=>toast('บันทึกแล้ว มือถือคนขับจะใช้ค่าใหม่ทันที')).catch(()=>toast('บันทึกไม่สำเร็จ')); };
 $('thrSel').onchange = e => { db.doc('config/main').set({thr:+e.target.value}, {merge:true}).then(()=>toast('บันทึกแล้ว')).catch(()=>toast('บันทึกไม่สำเร็จ')); };
 $('savePin').onclick = () => { const p = $('newPin').value.trim(); if (!/^\d{4,6}$/.test(p)){ toast('รหัสต้องเป็นตัวเลข 4–6 หลัก'); return; }
   db.doc('config/main').set({pin:p}, {merge:true}).then(()=>{ $('newPin').value=''; toast('เปลี่ยนรหัสแล้ว'); }).catch(()=>toast('บันทึกไม่สำเร็จ')); };
@@ -974,7 +1072,7 @@ window.onAndroidBack = () => {
   if (role==='driver' && !$('scrDriver').hidden && dScreen !== 'home'){
     if (['jobs','hist','prof'].includes(dScreen)) goTab('home'); else go(dTab || 'home');
     return true; }
-  if (role==='admin' && !$('scrAdmin').hidden && aTab !== 'ov'){ aTab='ov'; renderAdmin(); setTimeout(()=>aMap&&aMap.invalidateSize(),60); return true; }
+  if (role==='admin' && !$('scrAdmin').hidden && aTab !== 'ov'){ aTab='ov'; renderAdmin(); setTimeout(()=>aMap&&aMap.resize(),60); return true; }
   if (!$('scrPick').hidden || !$('scrPin').hidden){ role=''; ls.set('role',''); show('scrStart'); return true; }
   return false;
 };

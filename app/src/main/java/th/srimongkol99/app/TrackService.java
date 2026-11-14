@@ -63,12 +63,12 @@ public class TrackService extends Service implements LocationListener {
     private static final int NOTIF_TRACK = 1;
     private static final int NOTIF_CMD = 2;
 
-    private static final long MOVE_METERS = 80;
-    private static final long STOP_AFTER_MS = 3 * 60_000L;
-    private static final long HEARTBEAT_MS = 5 * 60_000L;
+    private static final float MOVE_KMH = 6f;          // faster than this = driving
+    private static final float MOVE_METERS = 40f;      // or moved this far from where it stopped
+    private static final long STOP_AFTER_MS = 2 * 60_000L;
+    private static final long HEARTBEAT_MS = 2 * 60_000L;
     private static final long POLL_MS = 30_000L;
 
-    private static Ringtone ring;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
     private SharedPreferences sp;
@@ -81,12 +81,10 @@ public class TrackService extends Service implements LocationListener {
 
     private Location anchor;
     private Location last;
+    private Location lastWritten;
     private long lastMoveAt = 0, lastWrite = 0, lastGpsFix = 0;
     private boolean moving = false;
-
-    private TextToSpeech tts;
-    private boolean ttsReady = false;
-    private MediaPlayer player;
+    private long liveMs = 5_000L;   // write interval while driving ("real time")
 
     private final Runnable poll = new Runnable() {
         @Override
@@ -107,10 +105,6 @@ public class TrackService extends Service implements LocationListener {
         sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         makeChannels();
-        tts = new TextToSpeech(this, status -> {
-            ttsReady = status == TextToSpeech.SUCCESS;
-            if (ttsReady) tts.setLanguage(new Locale("th", "TH"));
-        });
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sm99:track");
     }
@@ -153,6 +147,7 @@ public class TrackService extends Service implements LocationListener {
             truckId = newTruck;
             apiKey = c.optString("apiKey");
             projectId = c.optString("projectId");
+            liveMs = Math.max(2, Math.min(60, c.optInt("liveSec", 5))) * 1000L;
             String given = c.optString("refreshToken");
             String stored = sp.getString("refreshToken", "");
             if (!given.equals(sp.getString("lastGiven", ""))) {
@@ -177,12 +172,12 @@ public class TrackService extends Service implements LocationListener {
         } catch (Exception ignored) {
         }
         try {
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 20_000L, 0f, this, Looper.getMainLooper());
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, Math.min(2_000L, liveMs), 0f, this, Looper.getMainLooper());
         } catch (Exception ignored) {
         }
         try {
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 30_000L, 0f, this, Looper.getMainLooper());
+                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 15_000L, 0f, this, Looper.getMainLooper());
             }
         } catch (Exception ignored) {
         }
@@ -200,24 +195,32 @@ public class TrackService extends Service implements LocationListener {
             j.put("lat", l.getLatitude());
             j.put("lng", l.getLongitude());
             j.put("acc", l.getAccuracy());
+            j.put("kmh", l.hasSpeed() ? l.getSpeed() * 3.6 : 0);
+            j.put("heading", l.hasBearing() ? l.getBearing() : -1);
             j.put("at", now);
             sp.edit().putString("lastLoc", j.toString()).apply();
         } catch (Exception ignored) {
         }
+        float kmh = l.hasSpeed() ? l.getSpeed() * 3.6f : 0f;
         if (anchor == null) {
             anchor = l;
             lastMoveAt = now;
             write();
             return;
         }
-        float d = anchor.distanceTo(l);
-        if (d >= MOVE_METERS && l.getAccuracy() < 150) {
+        boolean goingNow = (kmh >= MOVE_KMH && l.getAccuracy() < 60)
+                || (anchor.distanceTo(l) >= MOVE_METERS && l.getAccuracy() < 60);
+        if (goingNow) {
             anchor = l;
             lastMoveAt = now;
+            boolean started = !moving;
             moving = true;
-            write();
+            boolean movedSinceWrite = lastWritten == null || lastWritten.distanceTo(l) >= 8f;
+            if (started || (now - lastWrite >= liveMs && movedSinceWrite)) write();
         } else if (moving && now - lastMoveAt > STOP_AFTER_MS) {
             moving = false;
+            write();
+        } else if (now - lastWrite > HEARTBEAT_MS) {
             write();
         }
     }
@@ -240,6 +243,8 @@ public class TrackService extends Service implements LocationListener {
         final double lat = last.getLatitude(), lng = last.getLongitude();
         final float acc = last.getAccuracy();
         final float speed = last.hasSpeed() ? last.getSpeed() * 3.6f : 0f;
+        final float heading = last.hasBearing() ? last.getBearing() : -1f;
+        lastWritten = last;
         final boolean mv = moving;
         final long moveAt = lastMoveAt, at = lastWrite;
         io.execute(() -> {
@@ -248,13 +253,14 @@ public class TrackService extends Service implements LocationListener {
                 f.put("lat", dbl(lat));
                 f.put("lng", dbl(lng));
                 f.put("acc", dbl(acc));
-                f.put("speed", dbl(speed));
+                f.put("speed", dbl(moving ? speed : 0));
+                f.put("heading", dbl(heading));
                 f.put("moving", new JSONObject().put("booleanValue", mv));
                 f.put("lastMoveAt", integer(moveAt));
                 f.put("gpsAt", integer(at));
                 f.put("gpsSrc", new JSONObject().put("stringValue", "app"));
                 StringBuilder q = new StringBuilder("?currentDocument.exists=true");
-                String[] keys = {"lat", "lng", "acc", "speed", "moving", "lastMoveAt", "gpsAt", "gpsSrc"};
+                String[] keys = {"lat", "lng", "acc", "speed", "heading", "moving", "lastMoveAt", "gpsAt", "gpsSrc"};
                 for (String k : keys) q.append("&updateMask.fieldPaths=").append(k);
                 String url = docUrl("trucks/" + truckId) + q;
                 http("PATCH", url, new JSONObject().put("fields", f).toString(), true);
@@ -315,33 +321,11 @@ public class TrackService extends Service implements LocationListener {
         showCommandNotification(title, body);
         vibrate(isRing);
         if (isRing) {
-            startRing(this);
+            Loud.ring(this, 45_000L);
         } else if (!audio.isEmpty()) {
-            playAudio(audio);
-        } else if (!text.isEmpty() && ttsReady) {
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ann");
-        }
-    }
-
-    private void playAudio(String dataUrl) {
-        try {
-            int comma = dataUrl.indexOf(',');
-            byte[] bytes = Base64.decode(comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl, Base64.DEFAULT);
-            String ext = dataUrl.contains("mp4") ? ".m4a" : (dataUrl.contains("ogg") ? ".ogg" : ".webm");
-            File f = new File(getCacheDir(), "announce" + ext);
-            try (FileOutputStream out = new FileOutputStream(f)) {
-                out.write(bytes);
-            }
-            if (player != null) player.release();
-            player = new MediaPlayer();
-            player.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
-            player.setDataSource(f.getAbsolutePath());
-            player.setOnCompletionListener(MediaPlayer::release);
-            player.prepare();
-            player.start();
-        } catch (Exception ignored) {
+            Loud.playClip(this, audio);
+        } else if (!text.isEmpty()) {
+            Loud.speak(this, text);
         }
     }
 
@@ -355,30 +339,11 @@ public class TrackService extends Service implements LocationListener {
     }
 
     static void startRing(Context ctx) {
-        try {
-            stopRingSound();
-            Uri u = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (u == null) u = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            ring = RingtoneManager.getRingtone(ctx.getApplicationContext(), u);
-            if (ring != null) {
-                ring.setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM).build());
-                ring.play();
-                main.postDelayed(TrackService::stopRingSound, 30_000L);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void stopRingSound() {
-        try {
-            if (ring != null && ring.isPlaying()) ring.stop();
-        } catch (Exception ignored) {
-        }
+        Loud.ring(ctx, 45_000L);
     }
 
     static void stopRing(Context ctx) {
-        stopRingSound();
+        Loud.stop(ctx);
         try {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
             nm.cancel(NOTIF_CMD);
@@ -505,8 +470,6 @@ public class TrackService extends Service implements LocationListener {
         } catch (Exception ignored) {
         }
         if (wake != null && wake.isHeld()) wake.release();
-        if (tts != null) tts.shutdown();
-        if (player != null) player.release();
         io.shutdown();
         super.onDestroy();
     }
