@@ -33,6 +33,10 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
 
@@ -48,6 +52,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCb;
     private Uri cameraUri;
     private PermissionRequest pendingMic;
+    private final ExecutorService bg = Executors.newSingleThreadExecutor();
+    private boolean pendingInstall = false;
     private GeolocationPermissions.Callback geoCb;
     private String geoOrigin;
 
@@ -225,6 +231,10 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         if (web != null) web.evaluateJavascript("window.onAndroidResume&&window.onAndroidResume()", null);
+        if (pendingInstall && Updater.canInstall(this)) {
+            pendingInstall = false;
+            startUpdate();
+        }
     }
 
     @Override
@@ -241,6 +251,34 @@ public class MainActivity extends Activity {
         }
         web.evaluateJavascript("(window.onAndroidBack&&window.onAndroidBack())?'1':'0'", v -> {
             if (v == null || !v.contains("1")) moveTaskToBack(true);
+        });
+    }
+
+    private void js(final String code) {
+        runOnUiThread(() -> {
+            if (web != null) web.evaluateJavascript(code, null);
+        });
+    }
+
+    private void updateState(String state, int pc) {
+        js("window.onUpdateState&&window.onUpdateState(" + JSONObject.quote(state) + "," + pc + ")");
+    }
+
+    private void startUpdate() {
+        if (!Updater.canInstall(this)) {
+            pendingInstall = true;
+            updateState("need_permission", 0);
+            Updater.openInstallPermission(this);
+            return;
+        }
+        updateState("progress", 0);
+        bg.execute(() -> {
+            try {
+                final File apk = Updater.download(this, pc -> updateState("progress", pc));
+                runOnUiThread(() -> updateState(Updater.install(this, apk) ? "installing" : "error", 100));
+            } catch (Exception e) {
+                updateState("error", 0);
+            }
         });
     }
 
@@ -330,6 +368,24 @@ public class MainActivity extends Activity {
                 if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             });
+        }
+
+        @JavascriptInterface
+        public String appVersion() {
+            return Updater.myVersionName(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void checkUpdate() {
+            bg.execute(() -> {
+                JSONObject info = Updater.check(MainActivity.this);
+                js("window.onUpdateInfo&&window.onUpdateInfo(" + (info == null ? "null" : info.toString()) + ")");
+            });
+        }
+
+        @JavascriptInterface
+        public void installUpdate() {
+            runOnUiThread(MainActivity.this::startUpdate);
         }
 
         @JavascriptInterface

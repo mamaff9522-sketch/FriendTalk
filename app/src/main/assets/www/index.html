@@ -187,7 +187,8 @@
       <div class="card list" style="margin-top:12px">
         <div class="li"><i data-i="pin"></i><span class="grow">GPS ติดตามรถ</span><b id="pfGps">–</b></div>
         <label class="li"><i data-i="sun"></i><span class="grow">เปิดหน้าจอค้างไว้</span><input type="checkbox" id="pfScreen" class="sw"></label>
-                <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากระบบ</span><i data-i="chev"></i></button>
+                <button class="li" data-updcheck="1"><i data-i="swap"></i><span class="grow">ตรวจสอบอัปเดตแอป</span><b class="small muted appver"></b></button>
+        <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากระบบ</span><i data-i="chev"></i></button>
       </div>
       <p class="note">GPS จะส่งตำแหน่งต่อเนื่องแม้ปิดหน้าจอ ตราบที่ยังเห็นแจ้งเตือน “GPS กำลังติดตาม” ด้านบนจอ ควรเสียบที่ชาร์จในรถ</p>
     </div>
@@ -325,6 +326,7 @@
         </div>
         <div class="card list">
           <label class="li"><i data-i="bell"></i><span class="grow">เสียงเตือนเมื่อมีรถจอดนิ่ง/แจ้งล่าช้า</span><input type="checkbox" id="aSound" class="sw" checked></label>
+          <button class="li" data-updcheck="1"><i data-i="swap"></i><span class="grow">ตรวจสอบอัปเดตแอป</span><b class="small muted appver"></b></button>
           <button class="li" id="aLogout"><i data-i="logout"></i><span class="grow">ออกจากศูนย์ควบคุม</span><i data-i="chev"></i></button>
         </div>
         <p class="note">เวอร์ชันแอป <span id="appVer">1.0</span></p>
@@ -368,6 +370,21 @@
     <button class="btn btn-ghost btn-block" id="credClose">ปิด</button>
   </div>
 </div>
+
+<!-- app update -->
+<div class="ov" id="updOv" hidden>
+  <div class="card pad stack" style="width:100%;max-width:360px;text-align:center">
+    <div class="logo-big" style="width:72px;height:72px;border-radius:18px"><svg viewBox="0 0 64 40" style="width:54px;height:34px"><rect x="2" y="6" width="36" height="22" rx="3" fill="#fff"/><path d="M40 12h11l9 10v6H40z" fill="#fff"/><path d="M2 22h36v3H2z" fill="#ef7a16"/><circle cx="14" cy="31" r="5" fill="#ef7a16" stroke="#fff" stroke-width="2"/><circle cx="50" cy="31" r="5" fill="#ef7a16" stroke="#fff" stroke-width="2"/></svg></div>
+    <b class="sec" style="font-size:19px" id="updTitle">มีเวอร์ชันใหม่</b>
+    <div class="small muted" id="updVer"></div>
+    <div class="note" id="updNotes" style="margin:0;text-align:left;white-space:pre-line"></div>
+    <div class="bar" id="updBar" hidden><span id="updBarIn"></span></div>
+    <div class="small" id="updMsg"></div>
+    <button class="btn btn-orange btn-lg btn-block" id="updGo">อัปเดตเลย</button>
+    <button class="btn btn-ghost btn-block" id="updLater">ไว้ทีหลัง</button>
+  </div>
+</div>
+<div class="upd-pill" id="updPill" hidden>มีเวอร์ชันใหม่ · แตะเพื่ออัปเดต</div>
 
 <!-- photo viewer -->
 <div class="ov" id="photoOv" hidden><img id="photoImg" alt="รูปที่แนบ"><button class="btn btn-ghost" id="photoClose">ปิด</button></div>

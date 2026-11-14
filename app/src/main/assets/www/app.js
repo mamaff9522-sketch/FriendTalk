@@ -306,7 +306,7 @@ function startTracking(){
   }
 }
 window.onAndroidPerms = () => { if (role==='driver' && myTruck) startTracking(); renderDriver(); };
-window.onAndroidResume = () => { if (role==='driver' && myTruck){ startTracking(); checkCmd(); renderDriver(); } };
+window.onAndroidResume = () => { checkUpdate(false); if (role==='driver' && myTruck){ startTracking(); checkCmd(); renderDriver(); } };
 function haversine(a, b){ const R=6371000, r=x=>x*Math.PI/180; const dLat=r(b.lat-a.lat), dLng=r(b.lng-a.lng);
   const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
 function lastLoc(){
@@ -1062,9 +1062,48 @@ async function openPhoto(id){
 }
 $('photoClose').onclick = () => $('photoOv').hidden = true;
 
+/* ================= in-app update ================= */
+let updInfo = null, lastUpdCheck = 0, updBusy = false;
+function checkUpdate(manual){
+  if (!A || !A.checkUpdate){ if (manual) toast('ตรวจอัปเดตได้เฉพาะในแอปที่ติดตั้ง'); return; }
+  if (!manual && Date.now() - lastUpdCheck < 20*60000) return;
+  lastUpdCheck = Date.now(); checkUpdate.manual = !!manual;
+  if (manual) toast('กำลังตรวจสอบ…');
+  call('checkUpdate');
+}
+window.onUpdateInfo = info => {
+  if (!info){ if (checkUpdate.manual) toast('ตรวจสอบไม่ได้ ตรวจอินเทอร์เน็ต'); return; }
+  if (!info.newer){ updInfo = null; $('updPill').hidden = true; if (checkUpdate.manual) toast(`ใช้เวอร์ชันล่าสุดอยู่แล้ว (${info.current})`); return; }
+  updInfo = info;
+  const skipped = ls.get('updLater', 0) === info.versionCode;
+  if (checkUpdate.manual || !skipped) openUpdate(); else $('updPill').hidden = false;
+};
+function openUpdate(){
+  if (!updInfo) return;
+  $('updTitle').textContent = 'มีเวอร์ชันใหม่';
+  $('updVer').textContent = `เวอร์ชัน ${updInfo.versionName}  (เครื่องนี้ ${updInfo.current || '-'})`;
+  $('updNotes').textContent = updInfo.notes || 'ปรับปรุงการทำงานของแอป';
+  $('updNotes').hidden = !updInfo.notes;
+  $('updBar').hidden = true; $('updMsg').textContent = ''; $('updGo').disabled = false; $('updGo').textContent = 'อัปเดตเลย';
+  $('updOv').hidden = false; $('updPill').hidden = true;
+}
+$('updGo').onclick = () => { if (updBusy) return; updBusy = true; $('updGo').disabled = true; call('installUpdate'); };
+$('updLater').onclick = () => { $('updOv').hidden = true; updBusy = false; if (updInfo){ ls.set('updLater', updInfo.versionCode); $('updPill').hidden = false; } };
+$('updPill').onclick = openUpdate;
+window.onUpdateState = (state, pc) => {
+  if (state === 'progress'){ $('updBar').hidden = false; $('updBarIn').style.width = pc + '%'; $('updMsg').textContent = `กำลังดาวน์โหลด… ${pc}%`; $('updGo').textContent = 'กำลังดาวน์โหลด…'; }
+  else if (state === 'need_permission'){ updBusy = false; $('updGo').disabled = false; $('updGo').textContent = 'อัปเดตเลย';
+    $('updMsg').innerHTML = 'ครั้งแรกเท่านั้น: เปิด <b>“อนุญาตจากแหล่งนี้”</b> แล้วกดย้อนกลับมา แอปจะอัปเดตต่อให้เอง'; }
+  else if (state === 'installing'){ updBusy = false; $('updGo').disabled = false; $('updGo').textContent = 'ติดตั้งอีกครั้ง'; $('updMsg').innerHTML = 'กด <b>“อัปเดต”</b> หรือ <b>“ติดตั้ง”</b> ที่หน้าต่างของ Android'; }
+  else { updBusy = false; $('updGo').disabled = false; $('updGo').textContent = 'ลองใหม่'; $('updMsg').textContent = 'ดาวน์โหลดไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองใหม่'; }
+};
+document.addEventListener('click', e => { if (e.target.closest('[data-updcheck]')) checkUpdate(true); });
+function paintVersion(){ const v = call('appVersion') || ''; document.querySelectorAll('.appver').forEach(el => el.textContent = v ? 'v' + v : ''); if ($('appVer')) $('appVer').textContent = v || '1.0'; }
+
 /* Android back button */
 window.onAndroidBack = () => {
   if (!$('photoOv').hidden){ $('photoOv').hidden = true; return true; }
+  if (!$('updOv').hidden){ $('updLater').click(); return true; }
   if (!$('credOv').hidden){ $('credClose').click(); return true; }
   if (!$('cmdOv').hidden){ $('cmdOk').click(); return true; }
   if (!$('dDrawer').hidden){ closeDrawer(); return true; }
@@ -1078,4 +1117,7 @@ window.onAndroidBack = () => {
 };
 
 boot();
+paintVersion();
+setTimeout(() => checkUpdate(false), 3000);
+setInterval(() => checkUpdate(false), 3*3600000);
 })();

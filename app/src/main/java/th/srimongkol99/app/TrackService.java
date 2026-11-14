@@ -86,10 +86,23 @@ public class TrackService extends Service implements LocationListener {
     private boolean moving = false;
     private long liveMs = 5_000L;   // write interval while driving ("real time")
 
+    private long lastUpdateCheck = 0;
+
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
             if (!MainActivity.foreground) io.execute(TrackService.this::checkCommand);
+            if (System.currentTimeMillis() - lastUpdateCheck > 6 * 3600_000L) {
+                lastUpdateCheck = System.currentTimeMillis();
+                io.execute(() -> {
+                    JSONObject info = Updater.check(TrackService.this);
+                    if (info != null && info.optBoolean("newer")
+                            && info.optLong("versionCode") != sp.getLong("notifiedVersion", 0)) {
+                        sp.edit().putLong("notifiedVersion", info.optLong("versionCode")).apply();
+                        Updater.notifyUpdate(TrackService.this, info);
+                    }
+                });
+            }
             long now = System.currentTimeMillis();
             if (last != null && now - lastWrite > HEARTBEAT_MS) {
                 if (moving && now - lastMoveAt > STOP_AFTER_MS) moving = false;

@@ -51,10 +51,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk srimongkol99.apk
+          N=${{ github.run_number }}
+          jq -n --argjson code $((N+1)) --arg name "1.0.$N" --rawfile notes release-notes.txt \
+            '{versionCode:$code, versionName:$name, notes:($notes|rtrimstr("\n"))}' > version.json
+          cat version.json
           gh release delete srimongkol99-apk --repo "${{ github.repository }}" --cleanup-tag -y || true
-          gh release create srimongkol99-apk srimongkol99.apk \
+          gh release create srimongkol99-apk srimongkol99.apk version.json \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "ศรีมงคล 99 เวอร์ชัน 1.0.${{ github.run_number }}" \
-            --notes "แอปขนส่ง ศรีมงคล 99 — $(git log -1 --pretty=%s)" \
+            --title "ศรีมงคล 99 เวอร์ชัน 1.0.$N" \
+            --notes-file release-notes.txt \
             --latest=false
