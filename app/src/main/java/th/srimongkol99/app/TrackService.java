@@ -76,7 +76,7 @@ public class TrackService extends Service implements LocationListener {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private PowerManager.WakeLock wake;
 
-    private String truckId, apiKey, projectId, refreshToken, idToken;
+    private String truckId, apiKey, projectId, refreshToken, idToken, deviceId = "";
     private long idExp = 0;
 
     private Location anchor;
@@ -164,6 +164,7 @@ public class TrackService extends Service implements LocationListener {
             apiKey = c.optString("apiKey");
             projectId = c.optString("projectId");
             liveMs = Math.max(2, Math.min(60, c.optInt("liveSec", 5))) * 1000L;
+            deviceId = c.optString("deviceId", "");
             String given = c.optString("refreshToken");
             String stored = sp.getString("refreshToken", "");
             if (!given.equals(sp.getString("lastGiven", ""))) {
@@ -392,6 +393,14 @@ public class TrackService extends Service implements LocationListener {
             if (f == null) return;
             String nonce = str(f, "nonce");
             long at = num(f, "at");
+            String forTruck = str(f, "truck"), forDevice = str(f, "device");
+            if (!forTruck.isEmpty() && !forTruck.equals(truckId)) return;          // another driver's command
+            if (!forDevice.isEmpty() && !deviceId.isEmpty() && !forDevice.equals(deviceId)) {
+                // this account is now used on a different phone: stop tracking and ringing on this one
+                sp.edit().remove("cfg").apply();
+                main.post(this::stopSelf);
+                return;
+            }
             if (nonce.isEmpty() || nonce.equals(sp.getString("lastNonce", ""))) return;
             if (System.currentTimeMillis() - at > 10 * 60_000L) return;
             sp.edit().putString("lastNonce", nonce).apply();

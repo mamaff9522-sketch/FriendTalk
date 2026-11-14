@@ -180,7 +180,8 @@
 
     <!-- HISTORY -->
     <div id="dHist" class="dscr" hidden>
-      <div class="card pad"><ul class="tl" id="dHistList"></ul></div>
+      <div class="card"><div class="pad" style="padding-bottom:4px"><b class="sec">งานที่จบแล้ว (35 วัน)</b></div><div id="dJobsDone"></div></div>
+      <div class="card pad" style="margin-top:12px"><b class="sec">เหตุการณ์ล่าสุด</b><ul class="tl" id="dHistList"></ul></div>
     </div>
 
     <!-- PROFILE -->
@@ -244,6 +245,7 @@
     <button data-at="ov" aria-pressed="true"><i data-i="home"></i>ภาพรวม (ติดตามรถ)</button>
     <button data-at="al"><i data-i="alert"></i>เหตุแจ้งเตือน <span class="badge" id="alBadge" hidden>0</span></button>
     <button data-at="jobs"><i data-i="list"></i>รายการงาน</button>
+    <button data-at="done"><i data-i="check"></i>งานที่จบแล้ว (35 วัน)</button>
     <button data-at="ev"><i data-i="clock"></i>ประวัติเหตุการณ์ (Event)</button>
     <button data-at="users"><i data-i="users"></i>จัดการผู้ใช้งาน</button>
     <button data-at="set"><i data-i="gear"></i>ตั้งค่าระบบ</button>
@@ -276,6 +278,19 @@
       <div id="atAl" class="card" hidden></div>
       <div id="atJobs" class="card" hidden></div>
       <div id="atEv" class="card pad" hidden><ul class="tl" id="evList"></ul></div>
+
+      <div id="atDone" class="stack" hidden>
+        <div class="card pad stack">
+          <div class="row between" style="flex-wrap:wrap"><b class="sec">งานที่จบแล้ว</b><span class="small muted">เก็บย้อนหลัง 35 วัน แล้วลบอัตโนมัติ</span></div>
+          <div class="grid2">
+            <label class="f">ช่วงเวลา<span class="field"><select id="dnRange"><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="35" selected>35 วัน</option></select><i data-i="down" class="dd"></i></span></label>
+            <label class="f">คนขับ / รถ<span class="field"><select id="dnTruck"><option value="">ทั้งหมด</option></select><i data-i="down" class="dd"></i></span></label>
+          </div>
+          <div class="sumrow" id="dnSum"></div>
+          <button class="btn btn-ghost btn-block" id="dnShare"><i data-i="speak"></i>ส่งสรุปเข้า LINE</button>
+        </div>
+        <div class="card" id="dnList"></div>
+      </div>
 
       <div id="atUsers" class="stack" hidden>
         <div class="card pad stack">
@@ -394,6 +409,15 @@
     <p class="note" style="margin:0" id="asgHelp">ยังไม่มีสถานที่ เพิ่มได้ที่เมนู “จัดการผู้ใช้งาน” → สถานที่</p>
     <button class="btn btn-orange btn-lg btn-block" id="asgGo">มอบหมายงาน</button>
     <button class="btn btn-ghost btn-block" id="asgClose">ยกเลิก</button>
+  </div>
+</div>
+
+<!-- completed job detail -->
+<div class="ov" id="jobOv" hidden>
+  <div class="card pad stack job-detail">
+    <div class="row between"><b class="sec" style="font-size:18px">รายละเอียดงาน</b><button class="btn btn-ghost btn-sm" id="jobClose">ปิด</button></div>
+    <div id="jobBody"></div>
+    <div class="grid2"><button class="btn btn-green" id="jobLine">ส่งเข้า LINE</button><button class="btn btn-navy" id="jobCopy">คัดลอก</button></div>
   </div>
 </div>
 

@@ -141,6 +141,7 @@ const DEFAULT_CENTER = [13.7563, 100.5018];
 let db = null, auth = null, user = null, fbCfg = null;
 const S = { trucks:{}, events:[], places:{}, config:null, cmd:null, myEvents:[], connected:false };
 let role = ls.get('role', '');
+const DEVICE = ls.get('deviceId', '') || (() => { const d = 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36); ls.set('deviceId', d); return d; })();
 let myTruck = ls.get('truck', '');
 let dScreen = 'home', dTab = 'home';
 let aTab = 'ov', selTruck = null;
@@ -197,6 +198,7 @@ function startData(){
       const mt = S.trucks[myTruck];
       if (!mt) driverLogout('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน');
       else if ((mt.loginVer||0) !== ls.get('loginVer', 0)) driverLogout('แอดมินเปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่');
+      else if (mt.deviceId && mt.deviceId !== DEVICE) driverLogout('บัญชีนี้เข้าสู่ระบบในมือถือเครื่องอื่นแล้ว');
     }
     renderAll();
   }, () => {}));
@@ -216,7 +218,7 @@ function renderAll(){
 
 function route(){
   if (role==='driver'){ if (myTruck) { show('scrDriver'); go('home'); } else { show('scrPick'); renderPick(); } }
-  else if (role==='admin' && ls.get('adminOk', false)) { show('scrAdmin'); renderAdmin(); setTimeout(initAdminMap, 50); }
+  else if (role==='admin' && ls.get('adminOk', false)) { if (myTruck) stopDriverHere(); show('scrAdmin'); renderAdmin(); setTimeout(initAdminMap, 50); setTimeout(() => user && cleanupOld(), 8000); }
   else show('scrStart');
 }
 
@@ -263,13 +265,21 @@ $('lgGo').onclick = async () => {
     const t = await db.doc('trucks/'+L.truckId).get({source:'server'});
     if (!t.exists){ fail('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน'); return; }
     myTruck = L.truckId; ls.set('truck', myTruck); ls.set('loginVer', L.ver || 0); ls.set('loginUser', u);
-    S.trucks[myTruck] = t.data();
+    S.trucks[myTruck] = Object.assign(t.data(), {deviceId: DEVICE});
+    await db.doc('trucks/'+myTruck).update({deviceId: DEVICE, loginAt: Date.now()});
     $('lgPass').value = ''; m.hidden = true;
     show('scrDriver'); driverStart(); go('home');
     toast(`สวัสดี ${t.data().driver || ''}`);
   } catch(e){ fail('เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'); }
   finally { $('lgGo').disabled = false; }
 };
+function stopDriverHere(){
+  if (!myTruck) return;
+  call('stopTracking');
+  if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; } if (myJobsUnsub){ myJobsUnsub(); myJobsUnsub=null; }
+  if (webWatch !== null){ try{ navigator.geolocation.clearWatch(webWatch); }catch(e){} webWatch = null; }
+  myTruck = ''; ls.set('truck',''); ls.set('loginVer', 0);
+}
 function driverLogout(msg){
   call('stopTracking'); myTruck=''; ls.set('truck',''); ls.set('loginVer', 0);
   if (cmdUnsub){ cmdUnsub(); cmdUnsub=null; } if (myEvUnsub){ myEvUnsub(); myEvUnsub=null; }
@@ -280,14 +290,23 @@ function driverLogout(msg){
 }
 
 /* ================= driver ================= */
-let cmdUnsub = null, myEvUnsub = null, webWatch = null;
+let cmdUnsub = null, myEvUnsub = null, myJobsUnsub = null, webWatch = null;
 function driverStart(){
   if (!user || !myTruck) return;
   if (cmdUnsub) cmdUnsub(); if (myEvUnsub) myEvUnsub();
   cmdUnsub = db.doc('commands/'+myTruck).onSnapshot(d => { S.cmd = d.exists ? d.data() : null; checkCmd(); }, () => {});
+  if (myJobsUnsub) myJobsUnsub();
+  myJobsUnsub = db.collection('jobs').where('truck','==',myTruck).limit(200).onSnapshot(snap => {
+    const cutoff = Date.now() - KEEP_DAYS*864e5;
+    S.myJobs = snap.docs.map(d => Object.assign({id:d.id}, d.data())).filter(j => j.doneAt >= cutoff).sort((a,b)=>b.doneAt-a.doneAt);
+    S.myJobs.forEach(j => jobsById[j.id] = j);
+    if (dScreen==='hist') renderDriver();
+  }, () => {});
   myEvUnsub = db.collection('events').where('truck','==',myTruck).limit(150).onSnapshot(snap => {
     S.myEvents = snap.docs.map(d => Object.assign({id:d.id}, d.data())).sort((a,b)=>b.at-a.at); if (dTab==='hist') renderDriver();
   }, () => {});
+  // accounts logged in before phone-binding existed: bind to this phone now
+  const mt = S.trucks[myTruck]; if (mt && !mt.deviceId) db.doc('trucks/'+myTruck).update({deviceId: DEVICE}).catch(()=>{});
   startTracking();
   call('keepScreenOn', !!ls.get('screenOn', false));
 }
@@ -295,7 +314,7 @@ function startTracking(){
   if (!user || !myTruck) return;
   if (A){
     if (!call('hasLocation')) { call('askLocation'); return; }
-    call('startTracking', JSON.stringify({truckId: myTruck, apiKey: fbCfg.apiKey, projectId: fbCfg.projectId, refreshToken: user.refreshToken, liveSec: liveSec()}));
+    call('startTracking', JSON.stringify({truckId: myTruck, apiKey: fbCfg.apiKey, projectId: fbCfg.projectId, refreshToken: user.refreshToken, liveSec: liveSec(), deviceId: DEVICE}));
   } else if (navigator.geolocation && webWatch === null){
     // browser fallback (testing without the APK): send position while the page is open
     let lastW = 0, anchor = null, lastMove = Date.now(), moving = false;
@@ -382,7 +401,10 @@ function renderDriver(){
   if (dScreen==='hitch') renderHitch(t);
   if (dScreen==='fuel') renderFuel(t);
   if (dScreen==='jobs') renderJobs(t);
-  if (dScreen==='hist') $('dHistList').innerHTML = feedHTML(S.myEvents, false) || `<li class="empty" style="display:block">ยังไม่มีประวัติ</li>`;
+  if (dScreen==='hist'){
+    $('dHistList').innerHTML = feedHTML(S.myEvents.slice(0, 40), false) || `<li class="empty" style="display:block">ยังไม่มีประวัติ</li>`;
+    $('dJobsDone').innerHTML = jobListHTML(S.myJobs || [], false);
+  }
   if (dScreen==='prof'){
     $('pfName').textContent = t.driver || '–';
     $('pfInfo').textContent = `รหัส ${t.code||'–'} · ทะเบียน ${t.plate||'–'}`;
@@ -589,10 +611,34 @@ $('aDone').onclick = async () => {
   if ($('aDone').dataset.sure !== '1'){ $('aDone').dataset.sure = '1'; toast('แตะ “จบงาน” อีกครั้งเพื่อยืนยัน'); setTimeout(() => $('aDone').dataset.sure = '', 3500); return; }
   $('aDone').dataset.sure = '';
   const route = `${t.originName ? t.originName + ' → ' : ''}${t.destName || ''}`;
+  try { await saveJobRecord(t); } catch(e){ /* the job still finishes; record is best-effort */ }
   await writeTruck({status:'done', doneAt: Date.now(), delay:null, updatedAt: Date.now(),
     lastJob: route, originId:'', originName:'', destId:'', destName:'', etaAt:null, headIn:null, tailIn:null});
   addEvent('done', route); dFollow = true; toast('จบงานแล้ว ขอบคุณครับ รอแอดมินมอบหมายงานถัดไป');
 };
+
+/* completed-job record (kept 35 days) */
+const KEEP_DAYS = 35;
+async function saveJobRecord(t){
+  const now = Date.now(), start = t.jobStart || t.assignedAt || t.standbyAt || 0;
+  const evs = S.myEvents.filter(e => e.at >= start - 60000);
+  const fu = fuelOf(t);
+  const after = v => v && v >= start ? v : null;
+  const arrive = after(t.arriveAt);
+  const job = {
+    truck: myTruck, plate: t.plate||'', driver: t.driver||'', code: t.code||'',
+    originName: t.originName||'', destName: t.destName||'',
+    jobStart: start || null, assignedAt: after(t.assignedAt), standbyAt: after(t.standbyAt), headIn: after(t.headIn), tailIn: after(t.tailIn),
+    departAt: after(t.departAt), arriveAt: arrive, doneAt: now, etaAt: t.etaAt || null,
+    onTime: t.etaAt && arrive ? arrive <= t.etaAt : null,
+    delays: evs.filter(e => e.type==='delay').map(e => ({reason: e.text||'', at: e.at, photoId: e.photoId||''})),
+    gpsIssues: evs.filter(e => e.type==='gpsmock' || e.type==='gpsoff').map(e => ({type: e.type, at: e.at})),
+    photos: evs.filter(e => e.photoId).map(e => ({id: e.photoId, type: e.type, at: e.at})),
+    fuel: fu, fuelL: fu.reduce((a,f)=>a+(+f.liters||0),0), fuelB: fu.reduce((a,f)=>a+(+f.baht||0),0),
+    expireAt: now + KEEP_DAYS*864e5,
+  };
+  await db.collection('jobs').doc(t.jobId || rid()).set(job);
+}
 
 /* fuel */
 const fuelOf = t => Array.isArray(t && t.fuel) ? t.fuel : [];
@@ -705,6 +751,7 @@ function seenNonce(){ return (A ? call('lastNonce') : '') || ls.get('lastNonce',
 function markSeen(n){ call('markSeen', n); ls.set('lastNonce', n); }
 function checkCmd(){
   const c = S.cmd; if (!c || role!=='driver' || document.hidden) return;
+  if ((c.truck && c.truck !== myTruck) || (c.device && c.device !== DEVICE)) return;   // meant for another driver / phone
   if (c.nonce && c.nonce === seenNonce()){
     if (c.type === 'ring' && call('isRinging') && $('cmdOv').hidden){ showCmd(c, true); }
     return;
@@ -763,8 +810,9 @@ $('pinGo').onclick = async () => {
     if (p !== $('pinIn2').value.trim()){ toast('รหัสสองช่องไม่ตรงกัน'); return; }
     try { await db.doc('config/main').set({pin:p, thr:30}, {merge:true}); } catch(e){ toast('บันทึกไม่สำเร็จ ตรวจอินเทอร์เน็ต'); return; }
   } else if (p !== String(S.config.pin)){ toast('รหัสไม่ถูกต้อง'); $('pinIn').value=''; return; }
+  if (myTruck){ stopDriverHere(); toast('ออกจากโหมดคนขับในเครื่องนี้แล้ว (มือถือเครื่องนี้จะไม่รับกริ่งของคนขับ)'); }
   role = 'admin'; ls.set('role','admin'); ls.set('adminOk', true);
-  show('scrAdmin'); renderAdmin(); setTimeout(initAdminMap, 50);
+  show('scrAdmin'); renderAdmin(); setTimeout(initAdminMap, 50); setTimeout(cleanupOld, 4000);
 };
 $('pinIn').addEventListener('keydown', e => { if (e.key==='Enter'){ if ($('pinIn2').hidden) $('pinGo').click(); else $('pinIn2').focus(); } });
 $('pinIn2').addEventListener('keydown', e => { if (e.key==='Enter') $('pinGo').click(); });
@@ -856,7 +904,8 @@ function renderAdmin(){
   $('aSys').textContent = S.connected && navigator.onLine ? 'ระบบออนไลน์' : 'กำลังเชื่อมต่อ…';
   document.querySelectorAll('.side [data-at]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.at===aTab)));
   $('atOv').hidden = aTab!=='ov'; $('atAl').hidden = aTab!=='al'; $('atJobs').hidden = aTab!=='jobs';
-  $('atEv').hidden = aTab!=='ev'; $('atUsers').hidden = aTab!=='users'; $('atSet').hidden = aTab!=='set';
+  $('atEv').hidden = aTab!=='ev'; $('atUsers').hidden = aTab!=='users'; $('atSet').hidden = aTab!=='set'; $('atDone').hidden = aTab!=='done';
+  if (aTab==='done'){ startDoneListener(); renderDone(); }
   alertSound(alerts);
 
   if (aTab==='ov'){
@@ -937,11 +986,124 @@ function sure(b){ b.dataset.sure='1'; b.textContent='แตะอีกครั
 
 function sendCmd(id, cmd){
   const t = S.trucks[id]; if (!t) return;
-  const body = Object.assign({text:'', audio:''}, cmd, {at: Date.now(), nonce: rid()});
+  const body = Object.assign({text:'', audio:''}, cmd, {at: Date.now(), nonce: rid(), truck: id, device: t.deviceId || ''});
   db.doc('commands/'+id).set(body).then(() => {
     toast(online(t) ? `ส่งถึงมือถือ ${t.plate} แล้ว` : `ส่งแล้ว — มือถือ ${t.plate} ดูเหมือนออฟไลน์ จะได้รับเมื่อกลับมาออนไลน์`);
   }).catch(() => toast('ส่งไม่สำเร็จ ตรวจอินเทอร์เน็ต'));
   addEvent(cmd.type, cmd.type==='announce' ? (cmd.text || 'ข้อความเสียง') : '', '', null, id);
+}
+
+/* ===== completed jobs ===== */
+const durShort = ms => { if (!ms || ms < 0) return '–'; const m = Math.round(ms/60000); return m < 60 ? `${m} นาที` : `${Math.floor(m/60)} ชม. ${m%60} น.`; };
+function jobChip(j){
+  if (j.onTime === true) return '<span class="chip c-green">ตรงเวลา</span>';
+  if (j.onTime === false) return '<span class="chip c-red">ถึงช้ากว่านัด</span>';
+  return '';
+}
+function jobRowHTML(j, showWho){
+  const dur = j.departAt && j.arriveAt ? durShort(j.arriveAt - j.departAt) : (j.jobStart ? durShort(j.doneAt - j.jobStart) : '–');
+  return `<button class="jrow" data-job="${esc(j.id)}">
+    <div class="grow">
+      ${showWho ? `<div><b>${esc(j.plate)}</b> <span class="small muted">· ${esc(j.driver)}</span></div>` : ''}
+      <div class="small"><span style="color:var(--orange)">●</span> ${esc(j.originName||'–')} → <span style="color:var(--blue)">●</span> <b>${esc(j.destName||'–')}</b></div>
+      <div class="small muted">จบงาน ${fmtT(j.doneAt)} · ใช้เวลาเดินทาง ${dur}${j.fuelL?` · น้ำมัน ${num(j.fuelL)} ลิตร`:''}${(j.delays||[]).length?` · แจ้งล่าช้า ${j.delays.length} ครั้ง`:''}${(j.gpsIssues||[]).length?' · <span style="color:var(--red)">มีปัญหา GPS</span>':''}</div>
+    </div>${jobChip(j)}</button>`;
+}
+function jobListHTML(list, showWho){
+  if (!list.length) return '<div class="empty">ยังไม่มีงานที่จบในช่วงนี้</div>';
+  let out = '', day = '';
+  list.forEach(j => { const d = new Date(j.doneAt), k = d.toDateString();
+    if (k !== day){ day = k; out += `<div class="jday">${dayLbl(j.doneAt)} ${d.getDate()} ${TH_M[d.getMonth()]} ${d.getFullYear()+543}</div>`; }
+    out += jobRowHTML(j, showWho); });
+  return out;
+}
+function jobText(j){
+  const L = [`📦 งาน ${j.plate} (${j.driver})`, `ต้นทาง: ${j.originName||'-'}`, `ปลายทาง: ${j.destName||'-'}`];
+  if (j.etaAt) L.push(`นัดถึง: ${fmtDT(j.etaAt)}`);
+  [['สแตนบาย', j.standbyAt], ['หัวเข้าช่อง', j.headIn], ['หางเข้าช่อง', j.tailIn], ['ออกเดินทาง', j.departAt], ['ถึงปลายทาง', j.arriveAt], ['จบงาน', j.doneAt]]
+    .forEach(([k, v]) => { if (v) L.push(`${k}: ${fmtDT(v)}`); });
+  if (j.onTime === true) L.push('✅ ถึงตรงเวลา'); else if (j.onTime === false) L.push('⚠ ถึงช้ากว่านัด');
+  (j.delays||[]).forEach(d => L.push(`แจ้งล่าช้า ${fmtT(d.at)}: ${d.reason}`));
+  if (j.fuelL) L.push(`⛽ น้ำมัน ${(j.fuel||[]).length} ครั้ง · ${num(j.fuelL)} ลิตร${j.fuelB?` · ${num(j.fuelB)} บาท`:''}`);
+  return L.join('\n');
+}
+let jobsById = {}, jobOpen = null;
+function openJob(id){
+  const j = jobsById[id]; if (!j) return; jobOpen = j;
+  const step = (icon, bg, label, v) => `<li><span class="ic" style="background:${bg}">${ico(icon)}</span><span>${label}</span><b class="small">${v ? fmtDT(v) : '–'}</b></li>`;
+  $('jobBody').innerHTML = `
+    <div class="row between" style="flex-wrap:wrap"><div><b style="font-size:17px">${esc(j.plate)}</b> <span class="muted">· ${esc(j.driver)}</span></div>${jobChip(j)}</div>
+    <div class="route" style="margin:10px 0"><div class="rt"><span class="rt-dot o"></span><div><div class="small muted">ต้นทาง</div><b>${esc(j.originName||'–')}</b></div></div>
+      <div class="rt"><span class="rt-dot d"></span><div><div class="small muted">ปลายทาง</div><b>${esc(j.destName||'–')}</b>${j.etaAt?`<div class="small muted">นัดถึง ${fmtDT(j.etaAt)}</div>`:''}</div></div></div>
+    <ul class="steps">
+      ${step('list','#c27c12','มอบหมายงาน', j.assignedAt)}${step('flag','#1f5fd6','สแตนบายต้นทาง', j.standbyAt)}
+      ${step('dock','#f07d18','หัวเข้าช่อง', j.headIn)}${step('dock','#f07d18','หางเข้าช่อง', j.tailIn)}
+      ${step('play','#1f9d50','ออกเดินทาง', j.departAt)}${step('pin','#1f5fd6','ถึงปลายทาง', j.arriveAt)}${step('check','#1b2d57','จบงาน', j.doneAt)}
+    </ul>
+    ${(j.delays||[]).length ? `<b class="sec" style="margin-top:10px">แจ้งเหตุล่าช้า</b>` + j.delays.map(d => `<div class="small" style="padding:4px 0">${fmtT(d.at)} · ${esc(d.reason)}${d.photoId?` <button class="ph" data-photo="${esc(d.photoId)}">ดูรูป</button>`:''}</div>`).join('') : ''}
+    ${(j.gpsIssues||[]).length ? `<div class="note" style="color:var(--red)">พบปัญหา GPS: ${j.gpsIssues.map(g => `${g.type==='gpsmock'?'GPS ปลอม':'ปิด GPS'} ${fmtT(g.at)}`).join(', ')}</div>` : ''}
+    ${(j.fuel||[]).length ? `<b class="sec" style="margin-top:10px">เติมน้ำมัน · ${num(j.fuelL)} ลิตร${j.fuelB?` · ${num(j.fuelB)} บาท`:''}</b>${fuelRows(j.fuel, false)}` : ''}
+    ${(j.photos||[]).length ? `<b class="sec" style="margin-top:10px">รูปถ่าย (${j.photos.length})</b><div class="quick" style="margin-top:6px">${j.photos.map((p,i) => `<button data-photo="${esc(p.id)}">${ico('photo')} รูป ${i+1} · ${esc((EV[p.type]||{}).t||'')}</button>`).join('')}</div>` : ''}`;
+  $('jobOv').hidden = false; paintIcons($('jobOv'));
+}
+$('jobClose').onclick = () => { $('jobOv').hidden = true; jobOpen = null; };
+$('jobCopy').onclick = async () => { if (!jobOpen) return; const t = jobText(jobOpen); if (A && A.copy){ call('copy', t); toast('คัดลอกแล้ว'); } else { try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว'); } catch(e){ toast('คัดลอกไม่ได้'); } } };
+function shareLine(text){ const url = 'https://line.me/R/msg/text/?' + encodeURIComponent(text); if (A) call('openUrl', url); else window.open(url, '_blank'); }
+$('jobLine').onclick = () => { if (jobOpen) shareLine(jobText(jobOpen)); };
+document.addEventListener('click', e => { const b = e.target.closest('[data-job]'); if (b) openJob(b.dataset.job); });
+
+/* admin: list + filters (listener started when the tab opens) */
+let doneUnsub = null, doneJobs = [];
+function startDoneListener(){
+  if (doneUnsub) return;
+  const cutoff = Date.now() - KEEP_DAYS*864e5;
+  doneUnsub = db.collection('jobs').where('doneAt', '>=', cutoff).orderBy('doneAt', 'desc').limit(1000).onSnapshot(snap => {
+    doneJobs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.doneAt - a.doneAt);
+    doneJobs.forEach(j => jobsById[j.id] = j);
+    if (aTab === 'done') renderDone();
+  }, () => {});
+}
+function filteredDone(){
+  const days = +$('dnRange').value, tr = $('dnTruck').value;
+  const from = days === 1 ? new Date(new Date().toDateString()).getTime() : Date.now() - days*864e5;
+  return doneJobs.filter(j => j.doneAt >= from && (!tr || j.truck === tr));
+}
+function renderDone(){
+  const sel = $('dnTruck').value;
+  const opts = Object.entries(S.trucks).sort((a,b)=>(a[1].driver||'').localeCompare(b[1].driver||'','th'))
+    .map(([id,t]) => `<option value="${id}">${esc(t.driver)} · ${esc(t.plate)}</option>`).join('');
+  $('dnTruck').innerHTML = `<option value="">ทั้งหมด</option>${opts}`; $('dnTruck').value = sel;
+  const list = filteredDone();
+  const timed = list.filter(j => j.onTime !== null && j.onTime !== undefined), ok = timed.filter(j => j.onTime).length;
+  const L = list.reduce((a,j)=>a+(+j.fuelL||0),0), B = list.reduce((a,j)=>a+(+j.fuelB||0),0);
+  $('dnSum').innerHTML = `<div class="sum"><b>${list.length}</b><span>งานที่จบ</span></div>
+    <div class="sum"><b>${timed.length ? `${ok}/${timed.length}` : '–'}</b><span>ถึงตรงเวลา</span></div>
+    <div class="sum"><b>${num(L)}</b><span>ลิตร${B?` · ${num(B)} บ.`:''}</span></div>`;
+  $('dnList').innerHTML = jobListHTML(list, !$('dnTruck').value);
+}
+$('dnRange').onchange = renderDone; $('dnTruck').onchange = renderDone;
+$('dnShare').onclick = () => {
+  const list = filteredDone(); if (!list.length){ toast('ยังไม่มีงานในช่วงนี้'); return; }
+  const rng = $('dnRange').selectedOptions[0].textContent;
+  const lines = [`📋 สรุปงานที่จบ (${rng}) ศรีมงคล 99`, `รวม ${list.length} งาน`];
+  list.slice(0, 40).forEach(j => lines.push(`• ${fmtT(j.doneAt)} ${j.plate} ${j.driver}: ${j.originName||'-'} → ${j.destName||'-'}${j.onTime===false?' (ช้า)':''}`));
+  if (list.length > 40) lines.push(`…และอีก ${list.length-40} งาน`);
+  shareLine(lines.join('\n'));
+};
+
+/* delete anything older than 35 days (runs on the admin phone, at most twice a day) */
+async function cleanupOld(){
+  if (Date.now() - ls.get('lastCleanup', 0) < 12*3600000) return;
+  ls.set('lastCleanup', Date.now());
+  const cutoff = Date.now() - KEEP_DAYS*864e5;
+  const purge = async (col, field) => {
+    try {
+      const snap = await db.collection(col).where(field, '<', cutoff).limit(300).get();
+      if (snap.empty) return;
+      const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
+    } catch(e){}
+  };
+  await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at');
 }
 
 /* ===== admin: assign a job (origin -> destination) ===== */
@@ -1171,6 +1333,7 @@ window.onAndroidBack = () => {
   if (!$('photoOv').hidden){ $('photoOv').hidden = true; return true; }
   if (!$('updOv').hidden){ $('updLater').click(); return true; }
   if (!$('asgOv').hidden){ $('asgClose').click(); return true; }
+  if (!$('jobOv').hidden){ $('jobClose').click(); return true; }
   if (!$('credOv').hidden){ $('credClose').click(); return true; }
   if (!$('cmdOv').hidden){ $('cmdOk').click(); return true; }
   if (!$('dDrawer').hidden){ closeDrawer(); return true; }
