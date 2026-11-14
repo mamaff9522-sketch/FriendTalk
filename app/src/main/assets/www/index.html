@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ศรีมงคล 99</title>
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ================= START / ROLE ================= -->
+<section id="scrStart" class="full center" hidden>
+  <div class="start-card">
+    <div class="logo-big"><svg viewBox="0 0 64 40"><rect x="2" y="6" width="36" height="22" rx="3" fill="#fff"/><path d="M40 12h11l9 10v6H40z" fill="#fff"/><path d="M43 15h7l6 7H43z" fill="#123778"/><path d="M2 22h36v3H2z" fill="#ef7a16"/><circle cx="14" cy="31" r="5" fill="#ef7a16" stroke="#fff" stroke-width="2"/><circle cx="50" cy="31" r="5" fill="#ef7a16" stroke="#fff" stroke-width="2"/></svg></div>
+    <h1>ศรีมงคล 99</h1>
+    <p class="muted">ระบบติดตามรถขนส่ง</p>
+    <div id="startMsg" class="note" hidden></div>
+    <button class="btn btn-blue btn-lg btn-block" id="goDriver"><i data-i="truck"></i>เข้าใช้งานคนขับ</button>
+    <button class="btn btn-navy btn-lg btn-block" id="goAdmin"><i data-i="shield"></i>เข้าศูนย์ควบคุม (แอดมิน)</button>
+  </div>
+</section>
+
+<!-- ================= DRIVER: PICK TRUCK ================= -->
+<section id="scrPick" class="full" hidden>
+  <header class="appbar"><button class="ab-btn" data-nav="start" aria-label="กลับ"><i data-i="back"></i></button><h2 class="ab-title">เลือกรถของคุณ</h2><span class="ab-btn"></span></header>
+  <div class="page">
+    <p class="muted" style="margin:0 0 10px">แตะชื่อของคุณ ระบบจะจำไว้ในมือถือเครื่องนี้</p>
+    <div id="pickList" class="stack"></div>
+  </div>
+</section>
+
+<!-- ================= DRIVER ================= -->
+<section id="scrDriver" class="full" hidden>
+  <header class="appbar" id="dBar">
+    <button class="ab-btn" id="dMenuBtn" aria-label="เมนู"><i data-i="menu"></i></button>
+    <h2 class="ab-title ab-brand"><i data-i="truckw"></i><span id="dBarTitle">ศรีมงคล 99</span></h2>
+    <span class="ab-btn"></span>
+  </header>
+
+  <div class="page has-tabs">
+    <!-- HOME -->
+    <div id="dHome" class="dscr">
+      <div class="card prof">
+        <div class="avatar"><i data-i="driver"></i></div>
+        <div class="grow">
+          <div class="small muted">พนักงานขับรถ</div>
+          <b class="pname" id="dName">–</b>
+          <div class="small muted">รหัส: <span id="dCode">–</span> · <span id="dPlate">–</span></div>
+        </div>
+        <span class="chip" id="dOnline">ออฟไลน์</span>
+      </div>
+
+      <div class="card gps">
+        <div class="gps-head">
+          <i data-i="pin" class="gps-pin"></i>
+          <div class="grow"><b id="gpsTitle">GPS กำลังติดตาม</b><div class="small muted" id="gpsSub">–</div></div>
+          <button class="btn btn-sm btn-orange" id="gpsAllow" hidden>อนุญาต GPS</button>
+        </div>
+        <div class="dmap" id="dMap"></div>
+      </div>
+
+      <div class="job-strip" id="jobStrip" hidden>
+        <div class="grow"><div class="small muted">ปลายทาง</div><b id="jobDest">–</b></div>
+        <div class="right"><div class="small muted">นัดถึง</div><b id="jobEta">–</b></div>
+        <span class="chip" id="jobSt">–</span>
+      </div>
+
+      <div class="actions">
+        <button class="act a-blue" data-nav="standby"><i data-i="flag"></i><span>สแตนบาย<br>ต้นทาง</span></button>
+        <button class="act a-orange" data-nav="hitch"><i data-i="dock"></i><span>หัว-หาง<br>เข้าช่อง</span></button>
+        <button class="act a-green" id="aDepart"><i data-i="play"></i><span>ออกเดินทาง</span></button>
+        <button class="act a-blue2" id="aArrive"><i data-i="pin"></i><span>ขนถึง<br>ปลายทาง</span></button>
+        <button class="act a-dark" id="aDone"><i data-i="check"></i><span>จบงาน</span></button>
+        <button class="act a-red" data-nav="delay"><i data-i="warn"></i><span>แจ้งเหตุล่าช้า</span></button>
+      </div>
+
+      <button class="fuel-cta" data-nav="fuel"><i data-i="fuel"></i><span class="grow"><b id="fuelCta">เติมน้ำมัน ครั้งที่ 1</b><span class="small" id="fuelCtaSub">บันทึกการเติมน้ำมันของงานนี้</span></span><i data-i="chev"></i></button>
+    </div>
+
+    <!-- STANDBY -->
+    <div id="dStandby" class="dscr" hidden>
+      <div class="hero"><i data-i="flag" class="hero-ic c-orange-t"></i><div><b>แจ้งสแตนบายต้นทาง</b><div class="small muted">ยืนยันการเริ่มสแตนบายเพื่อรอขึ้นงาน</div></div></div>
+      <div class="form">
+        <label class="f">ปลายทาง <span class="req">*</span>
+          <span class="field"><i data-i="factory"></i><select id="sbDest"></select><i data-i="down" class="dd"></i></span>
+        </label>
+        <label class="f" id="sbOtherWrap" hidden>ชื่อปลายทาง <span class="req">*</span>
+          <span class="field"><i data-i="factory"></i><input id="sbOther" placeholder="พิมพ์ชื่อปลายทาง"></span>
+        </label>
+        <div class="f">เวลาถึงปลายทาง <span class="req">*</span>
+          <div class="grid2">
+            <span class="field"><i data-i="cal"></i><select id="sbDay"><option value="0">วันนี้</option><option value="1">พรุ่งนี้</option><option value="2">มะรืนนี้</option></select><i data-i="down" class="dd"></i></span>
+            <span class="field"><input type="time" id="sbTime" value="14:30"></span>
+          </div>
+        </div>
+      </div>
+      <div class="autobox">
+        <b class="sec">ข้อมูลอัตโนมัติ (ระบบบันทึกให้)</b>
+        <div class="kv"><i data-i="clock"></i><span>เวลาเริ่ม</span><b>: <span id="sbTimeNow">–</span></b></div>
+        <div class="kv"><i data-i="pin"></i><span>พิกัด GPS</span><b>: <span id="sbGps">–</span></b></div>
+      </div>
+      <button class="btn btn-orange btn-lg btn-block" id="sbSave"><i data-i="check"></i>ยืนยันสแตนบาย</button>
+    </div>
+
+    <!-- HITCH -->
+    <div id="dHitch" class="dscr" hidden>
+      <div class="hero"><i data-i="dock" class="hero-ic c-navy-t"></i><b>เลือกประเภทการเข้าช่อง</b></div>
+      <div class="stack">
+        <button class="opt" data-h="both" aria-pressed="true"><i data-i="truck"></i>หัว-หางเข้าช่องพร้อมกัน</button>
+        <button class="opt" data-h="head" aria-pressed="false"><i data-i="cab"></i>หัวเข้าช่อง</button>
+        <button class="opt" data-h="tail" aria-pressed="false"><i data-i="trailer"></i>หางเข้าช่อง</button>
+      </div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="stbox"><div class="stbox-h"><i data-i="car"></i>สถานะหัวรถ</div><div id="hHead"></div></div>
+        <div class="stbox"><div class="stbox-h"><i data-i="trailer"></i>สถานะหางพ่วง</div><div id="hTail"></div></div>
+      </div>
+      <label class="f" style="margin-top:12px">หมายเหตุความล่าช้า (ถ้ามี)
+        <textarea class="input" id="hNote" placeholder="ระบุสาเหตุความล่าช้า…"></textarea>
+      </label>
+      <label class="btn btn-photo btn-block" for="hPhoto"><i data-i="camera"></i>แนบรูปภาพ</label>
+      <input type="file" id="hPhoto" accept="image/*" hidden>
+      <img id="hPrev" class="photo-prev" alt="รูปที่แนบ" hidden>
+      <button class="btn btn-orange btn-lg btn-block" id="hSave"><i data-i="check"></i>ยืนยันเข้าช่อง</button>
+    </div>
+
+    <!-- DELAY -->
+    <div id="dDelay" class="dscr" hidden>
+      <div class="hero"><i data-i="warn" class="hero-ic c-red-t"></i><div><b>แจ้งเหตุล่าช้า</b><div class="small muted">แอดมินจะเห็นทันทีที่ศูนย์ควบคุม</div></div></div>
+      <div class="quick" id="dlQuick"><button>รถติดหนัก</button><button>รอขึ้นสินค้านาน</button><button>รอลงสินค้านาน</button><button>รถเสีย</button><button>ยางแตก</button><button>ฝนตกหนัก</button><button>อุบัติเหตุบนถนน</button></div>
+      <label class="f">สาเหตุ <span class="req">*</span><textarea class="input" id="dlReason" placeholder="เช่น รถติดหนักช่วงบางนา คาดว่าช้า 40 นาที"></textarea></label>
+      <label class="btn btn-photo btn-block" for="dlPhoto"><i data-i="camera"></i>แนบรูปภาพ (ถ้ามี)</label>
+      <input type="file" id="dlPhoto" accept="image/*" hidden>
+      <img id="dlPrev" class="photo-prev" alt="รูปที่แนบ" hidden>
+      <button class="btn btn-red btn-lg btn-block" id="dlSend"><i data-i="warn"></i>ส่งแจ้งเหตุล่าช้า</button>
+    </div>
+
+    <!-- FUEL -->
+    <div id="dFuel" class="dscr" hidden>
+      <div class="hero"><i data-i="fuel" class="hero-ic c-teal-t"></i><div><b id="fuTitle">เติมน้ำมัน ครั้งที่ 1</b><div class="small muted" id="fuSum">ยังไม่ได้เติมในงานนี้</div></div></div>
+      <div class="form">
+        <div class="grid2">
+          <label class="f">จำนวนลิตร <span class="req">*</span><input class="input" id="fuL" type="number" inputmode="decimal" min="0" step="0.01" placeholder="เช่น 120"></label>
+          <label class="f">จำนวนเงิน (บาท)<input class="input" id="fuB" type="number" inputmode="decimal" min="0" step="0.01" placeholder="เช่น 3600"></label>
+        </div>
+        <div class="grid2">
+          <label class="f">เลขไมล์ (กม.)<input class="input" id="fuO" type="number" inputmode="numeric" min="0" placeholder="เช่น 245310"></label>
+          <label class="f">ชื่อปั๊ม<input class="input" id="fuS" placeholder="เช่น ปตท. บางนา"></label>
+        </div>
+        <div class="locbox">
+          <div class="row between"><b class="sec">ตำแหน่งปั๊ม (GPS)</b><span class="chip" id="fuLocChip">กำลังหาตำแหน่ง…</span></div>
+          <div class="small mono" id="fuLocTxt"></div>
+          <button class="btn btn-teal btn-block" id="fuGps"><i data-i="gps"></i>อ่าน GPS ใหม่</button>
+        </div>
+        <label class="btn btn-photo btn-block" for="fuPhoto"><i data-i="camera"></i>แนบรูปใบเสร็จ / หน้าปัดไมล์</label>
+        <input type="file" id="fuPhoto" accept="image/*" hidden>
+        <img id="fuPrev" class="photo-prev" alt="รูปที่แนบ" hidden>
+        <button class="btn btn-teal btn-lg btn-block" id="fuSave"><i data-i="check"></i><span id="fuSaveTxt">บันทึกเติมน้ำมันครั้งที่ 1</span></button>
+      </div>
+      <div class="card pad" style="margin-top:12px"><b class="sec">รายการเติมน้ำมันงานนี้</b><div id="fuList"></div></div>
+    </div>
+
+    <!-- MY JOB -->
+    <div id="dJobs" class="dscr" hidden>
+      <div class="card pad" id="jobCard"></div>
+      <div class="card pad" style="margin-top:12px"><b class="sec">เติมน้ำมันงานนี้</b><div id="jobFuel"></div></div>
+    </div>
+
+    <!-- HISTORY -->
+    <div id="dHist" class="dscr" hidden>
+      <div class="card pad"><ul class="tl" id="dHistList"></ul></div>
+    </div>
+
+    <!-- PROFILE -->
+    <div id="dProf" class="dscr" hidden>
+      <div class="card pad prof-big">
+        <div class="avatar avatar-lg"><i data-i="driver"></i></div>
+        <b class="pname" id="pfName">–</b>
+        <div class="muted" id="pfInfo">–</div>
+      </div>
+      <div class="card list" style="margin-top:12px">
+        <div class="li"><i data-i="pin"></i><span class="grow">GPS ติดตามรถ</span><b id="pfGps">–</b></div>
+        <label class="li"><i data-i="sun"></i><span class="grow">เปิดหน้าจอค้างไว้</span><input type="checkbox" id="pfScreen" class="sw"></label>
+        <button class="li" id="pfSwitch"><i data-i="swap"></i><span class="grow">เปลี่ยนรถ / เปลี่ยนคนขับ</span><i data-i="chev"></i></button>
+        <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากโหมดคนขับ</span><i data-i="chev"></i></button>
+      </div>
+      <p class="note">GPS จะส่งตำแหน่งต่อเนื่องแม้ปิดหน้าจอ ตราบที่ยังเห็นแจ้งเตือน “GPS กำลังติดตาม” ด้านบนจอ ควรเสียบที่ชาร์จในรถ</p>
+    </div>
+  </div>
+
+  <nav class="tabbar">
+    <button data-tab="home" aria-pressed="true"><i data-i="home"></i>หน้าหลัก</button>
+    <button data-tab="jobs" aria-pressed="false"><i data-i="list"></i>งานของฉัน</button>
+    <button data-tab="hist" aria-pressed="false"><i data-i="clock"></i>ประวัติงาน</button>
+    <button data-tab="prof" aria-pressed="false"><i data-i="user"></i>โปรไฟล์</button>
+  </nav>
+</section>
+
+<!-- driver drawer -->
+<div class="drawer-bg" id="dDrawerBg" hidden></div>
+<aside class="drawer" id="dDrawer" hidden>
+  <div class="drawer-h"><i data-i="truckw"></i><div><b>ศรีมงคล 99</b><div class="small">โหมดคนขับ</div></div></div>
+  <button data-tab="home"><i data-i="home"></i>หน้าหลัก</button>
+  <button data-nav="standby"><i data-i="flag"></i>แจ้งสแตนบาย</button>
+  <button data-nav="hitch"><i data-i="dock"></i>หัว-หางเข้าช่อง</button>
+  <button data-nav="fuel"><i data-i="fuel"></i>เติมน้ำมัน</button>
+  <button data-nav="delay"><i data-i="warn"></i>แจ้งเหตุล่าช้า</button>
+  <button data-tab="jobs"><i data-i="list"></i>งานของฉัน</button>
+  <button data-tab="hist"><i data-i="clock"></i>ประวัติงาน</button>
+  <button data-tab="prof"><i data-i="user"></i>โปรไฟล์</button>
+</aside>
+
+<!-- ================= ADMIN PIN ================= -->
+<section id="scrPin" class="full" hidden>
+  <header class="appbar"><button class="ab-btn" data-nav="start" aria-label="กลับ"><i data-i="back"></i></button><h2 class="ab-title">ศูนย์ควบคุม</h2><span class="ab-btn"></span></header>
+  <div class="page center-col">
+    <div class="card pad pin-card">
+      <i data-i="shield" class="pin-ic"></i>
+      <b id="pinTitle">ใส่รหัสแอดมิน</b>
+      <p class="small muted" id="pinHelp">รหัส 4–6 หลัก</p>
+      <input class="input pin-in" id="pinIn" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+      <input class="input pin-in" id="pinIn2" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="ใส่รหัสอีกครั้ง" hidden>
+      <button class="btn btn-navy btn-lg btn-block" id="pinGo">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ADMIN ================= -->
+<section id="scrAdmin" class="full admin" hidden>
+  <aside class="side" id="aSide">
+    <div class="side-h"><i data-i="truckw"></i><div><b>ศรีมงคล 99</b><div class="small">ศูนย์ควบคุม · Admin Control</div></div></div>
+    <button data-at="ov" aria-pressed="true"><i data-i="home"></i>ภาพรวม (ติดตามรถ)</button>
+    <button data-at="al"><i data-i="alert"></i>เหตุแจ้งเตือน <span class="badge" id="alBadge" hidden>0</span></button>
+    <button data-at="jobs"><i data-i="list"></i>รายการงาน</button>
+    <button data-at="ev"><i data-i="clock"></i>ประวัติเหตุการณ์ (Event)</button>
+    <button data-at="users"><i data-i="users"></i>จัดการผู้ใช้งาน</button>
+    <button data-at="set"><i data-i="gear"></i>ตั้งค่าระบบ</button>
+  </aside>
+  <div class="side-bg" id="aSideBg" hidden></div>
+
+  <div class="amain">
+    <header class="ahead">
+      <button class="ab-btn a-menu" id="aMenuBtn" aria-label="เมนู"><i data-i="menu"></i></button>
+      <h1 class="ah-title"><span class="ah-long">Admin Control – </span>ศูนย์ควบคุม<span class="ah-long">การขนส่ง</span></h1>
+      <span class="chip c-green" id="aSys">ระบบออนไลน์</span>
+      <span class="ah-user"><i data-i="user"></i><span class="ah-long">แอดมิน<br><small>(Admin)</small></span></span>
+    </header>
+
+    <div class="apage">
+      <!-- OVERVIEW -->
+      <div id="atOv" class="ov-grid">
+        <div class="card amap-card"><div class="amap" id="aMap"></div></div>
+        <div class="stack">
+          <div class="card sel-card" id="selCard"></div>
+          <div class="card" id="aList"></div>
+        </div>
+        <div class="card pad live">
+          <b class="sec">เหตุการณ์ล่าสุด (Live Event)</b>
+          <ul class="tl tl-live" id="liveList"></ul>
+          <button class="link" data-at="ev">ดูประวัติทั้งหมด ›</button>
+        </div>
+      </div>
+
+      <div id="atAl" class="card" hidden></div>
+      <div id="atJobs" class="card" hidden></div>
+      <div id="atEv" class="card pad" hidden><ul class="tl" id="evList"></ul></div>
+
+      <div id="atUsers" class="stack" hidden>
+        <div class="card pad stack">
+          <b class="sec">เพิ่มรถ / คนขับ</b>
+          <div class="grid2">
+            <label class="f">ทะเบียนรถ <span class="req">*</span><input class="input" id="nPlate" placeholder="เช่น 70-1234 กทม."></label>
+            <label class="f">ชื่อคนขับ <span class="req">*</span><input class="input" id="nDriver" placeholder="เช่น สมชาย ใจดี"></label>
+          </div>
+          <div class="grid2">
+            <label class="f">รหัสพนักงาน<input class="input" id="nCode" placeholder="เช่น DRV-1023"></label>
+            <label class="f">เบอร์โทรคนขับ<input class="input" id="nPhone" inputmode="tel" placeholder="เช่น 0812345678"></label>
+          </div>
+          <button class="btn btn-orange" id="nAdd"><i data-i="plus"></i>เพิ่มรถ</button>
+        </div>
+        <div class="card" id="uList"></div>
+        <div class="card pad stack">
+          <b class="sec">ปลายทาง (โรงงาน / คลังสินค้า)</b>
+          <label class="f">ชื่อปลายทาง<input class="input" id="pName" placeholder="เช่น โรงงาน A (นิคมอุตสาหกรรม)"></label>
+          <label class="f">ตำแหน่ง (ไม่บังคับ) วางลิงก์ Google Maps หรือพิกัด<input class="input" id="pLoc" placeholder="เช่น https://maps.app.goo.gl/… หรือ 13.7563, 100.5018"></label>
+          <button class="btn btn-navy" id="pAdd"><i data-i="plus"></i>เพิ่มปลายทาง</button>
+          <div id="pList"></div>
+        </div>
+      </div>
+
+      <div id="atSet" class="stack" hidden>
+        <div class="card pad stack">
+          <b class="sec">แจ้งเตือนรถจอดนิ่ง</b>
+          <label class="f">แจ้งเตือนเมื่อรถที่กำลังเดินทางจอดนิ่งเกิน
+            <select class="input" id="thrSel">
+              <option value="5">5 นาที</option><option value="10">10 นาที</option><option value="15">15 นาที</option>
+              <option value="30">30 นาที</option><option value="45">45 นาที</option><option value="60">60 นาที</option>
+            </select>
+          </label>
+        </div>
+        <div class="card pad stack">
+          <b class="sec">เปลี่ยนรหัสแอดมิน</b>
+          <input class="input" id="newPin" type="password" inputmode="numeric" maxlength="6" placeholder="รหัสใหม่ 4–6 หลัก">
+          <button class="btn btn-navy" id="savePin">บันทึกรหัสใหม่</button>
+        </div>
+        <div class="card list">
+          <label class="li"><i data-i="bell"></i><span class="grow">เสียงเตือนเมื่อมีรถจอดนิ่ง/แจ้งล่าช้า</span><input type="checkbox" id="aSound" class="sw" checked></label>
+          <button class="li" id="aLogout"><i data-i="logout"></i><span class="grow">ออกจากศูนย์ควบคุม</span><i data-i="chev"></i></button>
+        </div>
+        <p class="note">เวอร์ชันแอป <span id="appVer">1.0</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SETUP NEEDED ================= -->
+<section id="scrSetup" class="full center" hidden>
+  <div class="start-card"><h1>ยังไม่ได้ตั้งค่าฐานข้อมูล</h1><p class="muted">แอปเวอร์ชันนี้ยังไม่ได้ใส่ค่า Firebase กรุณาติดตั้งเวอร์ชันใหม่</p></div>
+</section>
+
+<!-- ================= COMMAND OVERLAY (driver) ================= -->
+<div class="ov" id="cmdOv" hidden>
+  <div class="cmd-phone">
+    <div class="cmd-card" id="cmdBell"><i data-i="bell" class="cmd-ic ring-anim"></i><b>เสียงแจ้งเตือนจากแอดมิน</b></div>
+    <div class="cmd-card blue" id="cmdMic"><i data-i="mic" class="cmd-ic"></i><b>ไมค์จากแอดมิน</b><small>(กำลังประกาศ)</small></div>
+    <div class="cmd-msg" id="cmdMsg" hidden></div>
+    <div class="pill" id="cmdPill">ไม่ต้องกดรับ</div>
+    <button class="btn btn-orange btn-lg btn-block" id="cmdOk">รับทราบ</button>
+  </div>
+</div>
+
+<!-- admin: hold-to-talk recording indicator -->
+<div class="rec" id="recBox" hidden><span class="rec-dot"></span><b>กำลังพูด… <span id="recSec">0</span> วิ</b><span class="small">ปล่อยนิ้วเพื่อส่ง · เลื่อนออกเพื่อยกเลิก</span></div>
+
+<!-- photo viewer -->
+<div class="ov" id="photoOv" hidden><img id="photoImg" alt="รูปที่แนบ"><button class="btn btn-ghost" id="photoClose">ปิด</button></div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-auth-compat.js"></script>
+<script src="lib/firebase-firestore-compat.js"></script>
+<script src="lib/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+plugins { id 'com.android.application' }
+
+def runNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "0"
+
+android {
+    namespace 'th.srimongkol99.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "th.srimongkol99.app"
+        minSdk 26
+        targetSdk 35
+        versionCode runNumber.toInteger() + 1
+        versionName "1.0.${runNumber}"
+    }
+
+    signingConfigs {
+        sm99 {
+            storeFile file("sm99.jks")
+            storePassword "sm99store"
+            keyAlias "sm99"
+            keyPassword "sm99store"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.sm99
+        }
+        debug {
+            signingConfig signingConfigs.sm99
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.webkit:webkit:1.12.1'
+}

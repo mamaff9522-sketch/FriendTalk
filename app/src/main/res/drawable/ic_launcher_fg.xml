@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- trailer -->
+    <path android:fillColor="#FFFFFF" android:pathData="M24,38h36a3,3 0,0 1,3 3v25H24z"/>
+    <!-- cab -->
+    <path android:fillColor="#FFFFFF" android:pathData="M65,46h11l8,10v10H65z"/>
+    <path android:fillColor="#123778" android:pathData="M68,49h7l5.5,7H68z"/>
+    <!-- orange swoosh -->
+    <path android:fillColor="#EF7A16" android:pathData="M24,58h39v4H24z"/>
+    <!-- wheels -->
+    <path android:fillColor="#EF7A16" android:strokeColor="#FFFFFF" android:strokeWidth="2"
+        android:pathData="M37,68m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0"/>
+    <path android:fillColor="#EF7A16" android:strokeColor="#FFFFFF" android:strokeWidth="2"
+        android:pathData="M74,68m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0"/>
+</vector>
