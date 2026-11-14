@@ -66,10 +66,15 @@
         <div class="dmap" id="dMap"></div>
       </div>
 
-      <div class="job-strip" id="jobStrip" hidden>
-        <div class="grow"><div class="small muted">ปลายทาง</div><b id="jobDest">–</b></div>
-        <div class="right"><div class="small muted">นัดถึง</div><b id="jobEta">–</b></div>
-        <span class="chip" id="jobSt">–</span>
+      <div class="job-strip" id="jobStrip">
+        <div class="route grow" id="jobRoute">
+          <div class="rt"><span class="rt-dot o"></span><div><div class="small muted">ต้นทาง</div><b id="jobOrigin">–</b></div></div>
+          <div class="rt"><span class="rt-dot d"></span><div><div class="small muted">ปลายทาง</div><b id="jobDest">–</b></div></div>
+        </div>
+        <div class="right"><span class="chip" id="jobSt">–</span><div class="small muted" style="margin-top:6px">นัดถึง</div><b id="jobEta">–</b></div>
+      </div>
+      <div class="job-strip nojob" id="noJob" hidden>
+        <i data-i="list"></i><div class="grow"><b>ยังไม่มีงาน</b><div class="small muted">รอแอดมินมอบหมายต้นทาง–ปลายทาง แอปจะแจ้งเตือนเมื่อมีงานใหม่</div></div>
       </div>
 
       <div class="actions">
@@ -88,12 +93,13 @@
     <div id="dStandby" class="dscr" hidden>
       <div class="hero"><i data-i="flag" class="hero-ic c-orange-t"></i><div><b>แจ้งสแตนบายต้นทาง</b><div class="small muted">ยืนยันการเริ่มสแตนบายเพื่อรอขึ้นงาน</div></div></div>
       <div class="form">
-        <label class="f">ปลายทาง <span class="req">*</span>
-          <span class="field"><i data-i="factory"></i><select id="sbDest"></select><i data-i="down" class="dd"></i></span>
-        </label>
-        <label class="f" id="sbOtherWrap" hidden>ชื่อปลายทาง <span class="req">*</span>
-          <span class="field"><i data-i="factory"></i><input id="sbOther" placeholder="พิมพ์ชื่อปลายทาง"></span>
-        </label>
+        <div class="note" id="sbNoJob" hidden style="margin:0;color:var(--red);font-weight:600">ยังไม่มีงานจากแอดมิน รอแอดมินมอบหมายต้นทาง–ปลายทางก่อน</div>
+        <div class="f">งานที่แอดมินมอบหมาย
+          <div class="field route" style="flex-direction:column;align-items:stretch;padding:10px 12px;gap:8px">
+            <div class="rt"><span class="rt-dot o"></span><div><div class="small muted">ต้นทาง</div><b id="sbOrigin">–</b></div></div>
+            <div class="rt"><span class="rt-dot d"></span><div><div class="small muted">ปลายทาง</div><b id="sbDestName">–</b></div></div>
+          </div>
+        </div>
         <div class="f">เวลาถึงปลายทาง <span class="req">*</span>
           <div class="grid2">
             <span class="field"><i data-i="cal"></i><select id="sbDay"><option value="0">วันนี้</option><option value="1">พรุ่งนี้</option><option value="2">มะรืนนี้</option></select><i data-i="down" class="dd"></i></span>
@@ -291,10 +297,10 @@
         </div>
         <div class="card" id="uList"></div>
         <div class="card pad stack">
-          <b class="sec">ปลายทาง (โรงงาน / คลังสินค้า)</b>
-          <label class="f">ชื่อปลายทาง<input class="input" id="pName" placeholder="เช่น โรงงาน A (นิคมอุตสาหกรรม)"></label>
+          <b class="sec">สถานที่ ต้นทาง / ปลายทาง (โรงงาน คลังสินค้า ท่าเรือ)</b>
+          <label class="f">ชื่อสถานที่<input class="input" id="pName" placeholder="เช่น โรงงาน A (นิคมอุตสาหกรรม)"></label>
           <label class="f">ตำแหน่ง (ไม่บังคับ) วางลิงก์ Google Maps หรือพิกัด<input class="input" id="pLoc" placeholder="เช่น https://maps.app.goo.gl/… หรือ 13.7563, 100.5018"></label>
-          <button class="btn btn-navy" id="pAdd"><i data-i="plus"></i>เพิ่มปลายทาง</button>
+          <button class="btn btn-navy" id="pAdd"><i data-i="plus"></i>เพิ่มสถานที่</button>
           <div id="pList"></div>
         </div>
       </div>
@@ -368,6 +374,26 @@
     <button class="btn btn-green btn-block" id="credLine">ส่งทาง LINE</button>
     <button class="btn btn-navy btn-block" id="credCopy">คัดลอกข้อความ</button>
     <button class="btn btn-ghost btn-block" id="credClose">ปิด</button>
+  </div>
+</div>
+
+<!-- admin: assign a job (origin -> destination) -->
+<div class="ov" id="asgOv" hidden>
+  <div class="card pad stack" style="width:100%;max-width:400px">
+    <b class="sec" style="font-size:18px">มอบหมายงาน</b>
+    <div class="small muted" id="asgWho"></div>
+    <label class="f">ต้นทาง <span class="req">*</span><span class="field"><span class="rt-dot o"></span><select id="asgO"></select><i data-i="down" class="dd"></i></span></label>
+    <label class="f">ปลายทาง <span class="req">*</span><span class="field"><span class="rt-dot d"></span><select id="asgD"></select><i data-i="down" class="dd"></i></span></label>
+    <div class="f">นัดถึงปลายทาง (ไม่บังคับ)
+      <div class="grid2">
+        <span class="field"><select id="asgDay"><option value="">ไม่กำหนด</option><option value="0">วันนี้</option><option value="1">พรุ่งนี้</option><option value="2">มะรืนนี้</option></select><i data-i="down" class="dd"></i></span>
+        <span class="field"><input type="time" id="asgTime" value="14:30"></span>
+      </div>
+    </div>
+    <label class="li" style="padding:6px 0;border:0;display:flex;gap:10px;align-items:center"><span class="grow">แจ้งคนขับด้วยเสียง</span><input type="checkbox" id="asgSay" class="sw" checked></label>
+    <p class="note" style="margin:0" id="asgHelp">ยังไม่มีสถานที่ เพิ่มได้ที่เมนู “จัดการผู้ใช้งาน” → สถานที่</p>
+    <button class="btn btn-orange btn-lg btn-block" id="asgGo">มอบหมายงาน</button>
+    <button class="btn btn-ghost btn-block" id="asgClose">ยกเลิก</button>
   </div>
 </div>
 

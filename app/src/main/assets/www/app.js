@@ -111,6 +111,7 @@ async function savePhoto(data, truckId){
 /* ================= constants ================= */
 const ST = {
   idle:{t:'ว่าง', c:'', pin:'#8b97ad'},
+  assigned:{t:'ได้รับงานแล้ว', c:'c-amber', pin:'#c27c12'},
   standby:{t:'สแตนบายต้นทาง', c:'c-navy', pin:'#1f5fd6'},
   loading:{t:'หัว-หางเข้าช่อง', c:'c-orange', pin:'#f07d18'},
   enroute:{t:'กำลังเดินทาง', c:'c-green', pin:'#1f9d50'},
@@ -118,6 +119,7 @@ const ST = {
   done:{t:'จบงาน', c:'', pin:'#8b97ad'},
 };
 const EV = {
+  assign:{t:'แอดมินมอบหมายงาน', i:'list', bg:'#c27c12'},
   standby:{t:'สแตนบายต้นทาง', i:'flag', bg:'#1f5fd6'},
   hitch:{t:'หัว-หางเข้าช่อง', i:'dock', bg:'#f07d18'},
   depart:{t:'ออกเดินทาง', i:'play', bg:'#1f9d50'},
@@ -359,9 +361,9 @@ function renderDriver(){
   updateDriverMap(t);
 
   // job strip
-  const hasJob = t.status && t.status!=='idle' && t.status!=='done';
-  $('jobStrip').hidden = !hasJob;
-  if (hasJob){ const st = ST[t.status]||ST.idle; $('jobDest').textContent = t.destName || '–'; $('jobEta').textContent = t.etaAt ? fmtDT(t.etaAt) : '–'; $('jobSt').className = 'chip ' + st.c; $('jobSt').textContent = st.t; }
+  const hasJob = hasAssignedJob(t);
+  $('jobStrip').hidden = !hasJob; $('noJob').hidden = hasJob;
+  if (hasJob){ const st = ST[t.status]||ST.idle; $('jobOrigin').textContent = t.originName || '–'; $('jobDest').textContent = t.destName || '–'; $('jobEta').textContent = t.etaAt ? fmtDT(t.etaAt) : '–'; $('jobSt').className = 'chip ' + st.c; $('jobSt').textContent = st.t; }
 
   // fuel CTA
   const fu = fuelOf(t), n = fu.length + 1;
@@ -486,16 +488,17 @@ function updateDriverMarker(){
 
 /* standby */
 function placeList(){ return Object.entries(S.places).sort((a,b)=>(a[1].name||'').localeCompare(b[1].name||'','th')); }
+const hasAssignedJob = t => !!(t && t.destName && t.status && t.status !== 'idle' && t.status !== 'done');
 function prepStandby(){
   const t = S.trucks[myTruck] || {};
-  const opts = placeList().map(([id,p]) => `<option value="${id}">${esc(p.name)}</option>`).join('');
-  $('sbDest').innerHTML = `<option value="">— เลือกปลายทาง —</option>${opts}<option value="__other">อื่นๆ (พิมพ์เอง)</option>`;
-  if (t.destId && S.places[t.destId]) $('sbDest').value = t.destId;
-  $('sbOtherWrap').hidden = $('sbDest').value !== '__other';
-  if (t.etaAt){ const d = new Date(t.etaAt); $('sbTime').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+  const ok = hasAssignedJob(t);
+  $('sbNoJob').hidden = ok; $('sbSave').disabled = !ok;
+  $('sbOrigin').textContent = ok ? (t.originName || '–') : '–';
+  $('sbDestName').textContent = ok ? (t.destName || '–') : '–';
+  if (t.etaAt){ const d = new Date(t.etaAt); $('sbTime').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const k = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString()))/864e5); $('sbDay').value = String(Math.min(2, Math.max(0, k))); }
   renderStandbyAuto();
 }
-$('sbDest').onchange = () => { $('sbOtherWrap').hidden = $('sbDest').value !== '__other'; };
 function renderStandbyAuto(){
   $('sbTimeNow').textContent = fmtT(Date.now());
   const l = lastLoc(), t = S.trucks[myTruck];
@@ -503,19 +506,16 @@ function renderStandbyAuto(){
   $('sbGps').textContent = p ? `${(+p.lat).toFixed(4)}, ${(+p.lng).toFixed(4)}` : 'รอสัญญาณ GPS…';
 }
 $('sbSave').onclick = async () => {
-  const sel = $('sbDest').value; let destId = '', destName = '';
-  if (sel === '__other'){ destName = $('sbOther').value.trim(); if (!destName){ toast('กรุณาพิมพ์ชื่อปลายทาง'); return; } }
-  else if (sel){ destId = sel; destName = S.places[sel]?.name || ''; }
-  else { toast('กรุณาเลือกปลายทาง'); return; }
+  const t0 = S.trucks[myTruck] || {};
+  if (!hasAssignedJob(t0)){ toast('ยังไม่มีงาน รอแอดมินมอบหมายก่อน'); return; }
+  const destName = t0.destName, originName = t0.originName || '';
   const tm = $('sbTime').value; if (!tm){ toast('กรุณาใส่เวลาถึงปลายทาง'); return; }
   const [hh, mm] = tm.split(':').map(Number); const d = new Date(); d.setDate(d.getDate() + (+$('sbDay').value)); d.setHours(hh, mm, 0, 0);
   const t = S.trucks[myTruck] || {}, now = Date.now(), l = lastLoc();
-  const newJob = !t.status || ['idle','done','arrived'].includes(t.status);
-  const patch = {status:'standby', destId, destName, etaAt: d.getTime(), headIn:null, tailIn:null, delay:null, updatedAt: now, standbyAt: now};
-  if (newJob){ patch.fuel = []; patch.jobStart = now; patch.jobId = rid(); }
+  const patch = {status:'standby', etaAt: d.getTime(), delay:null, updatedAt: now, standbyAt: now};
   if (l){ patch.standbyLat = l.lat; patch.standbyLng = l.lng; }
   await writeTruck(patch);
-  addEvent('standby', `${destName} · นัดถึง ${fmtDT(d.getTime())}`, '', l);
+  addEvent('standby', `${originName ? originName + ' → ' : ''}${destName} · นัดถึง ${fmtDT(d.getTime())}`, '', l);
   dFollow = true;
   toast('บันทึกสแตนบายแล้ว'); go('home');
 };
@@ -526,6 +526,7 @@ function stHTML(ms){ return ms ? `<div class="st-ok">${ico('okc')}เข้า�
 function renderHitch(t){ $('hHead').innerHTML = stHTML(t.headIn); $('hTail').innerHTML = stHTML(t.tailIn); }
 bindPhoto('hPhoto', 'hPrev', hPhoto);
 $('hSave').onclick = async () => {
+  if (!hasAssignedJob(S.trucks[myTruck])){ toast('ยังไม่มีงาน รอแอดมินมอบหมายก่อน'); return; }
   const now = Date.now(), patch = {status:'loading', updatedAt: now};
   if (hitchType !== 'tail') patch.headIn = now;
   if (hitchType !== 'head') patch.tailIn = now;
@@ -561,7 +562,7 @@ $('dlSend').onclick = async () => {
 /* depart / arrive / done */
 $('aDepart').onclick = async () => {
   const t = S.trucks[myTruck] || {};
-  if (!t.destName){ toast('แจ้งสแตนบายและเลือกปลายทางก่อน'); go('standby'); return; }
+  if (!hasAssignedJob(t)){ toast('ยังไม่มีงาน รอแอดมินมอบหมายก่อน'); return; }
   if (t.status === 'enroute'){ toast('กำลังเดินทางอยู่แล้ว'); return; }
   const now = Date.now();
   await writeTruck({status:'enroute', departAt: now, lastMoveAt: now, updatedAt: now});
@@ -576,9 +577,13 @@ $('aArrive').onclick = async () => {
 };
 $('aDone').onclick = async () => {
   const t = S.trucks[myTruck] || {};
-  if (!t.status || t.status==='idle' || t.status==='done'){ toast('ยังไม่มีงานที่ต้องจบ'); return; }
-  await writeTruck({status:'done', doneAt: Date.now(), delay:null, updatedAt: Date.now()});
-  addEvent('done', t.destName || ''); toast('จบงานแล้ว ขอบคุณครับ');
+  if (!hasAssignedJob(t)){ toast('ยังไม่มีงานที่ต้องจบ'); return; }
+  if ($('aDone').dataset.sure !== '1'){ $('aDone').dataset.sure = '1'; toast('แตะ “จบงาน” อีกครั้งเพื่อยืนยัน'); setTimeout(() => $('aDone').dataset.sure = '', 3500); return; }
+  $('aDone').dataset.sure = '';
+  const route = `${t.originName ? t.originName + ' → ' : ''}${t.destName || ''}`;
+  await writeTruck({status:'done', doneAt: Date.now(), delay:null, updatedAt: Date.now(),
+    lastJob: route, originId:'', originName:'', destId:'', destName:'', etaAt:null, headIn:null, tailIn:null});
+  addEvent('done', route); dFollow = true; toast('จบงานแล้ว ขอบคุณครับ รอแอดมินมอบหมายงานถัดไป');
 };
 
 /* fuel */
@@ -642,11 +647,12 @@ $('fuSave').onclick = async () => {
 /* my job */
 function renderJobs(t){
   const st = ST[t.status]||ST.idle;
-  const has = t.status && t.status!=='idle';
+  const has = hasAssignedJob(t);
   const late = has && t.etaAt && Date.now() > t.etaAt && !['arrived','done'].includes(t.status);
-  $('jobCard').innerHTML = !has ? `<div class="empty">ยังไม่มีงาน กด “สแตนบายต้นทาง” ที่หน้าหลักเพื่อเริ่มงาน</div>` : `
+  $('jobCard').innerHTML = !has ? `<div class="empty">ยังไม่มีงาน รอแอดมินมอบหมายต้นทาง–ปลายทาง${t.lastJob?`<div class="small" style="margin-top:6px">งานล่าสุด: ${esc(t.lastJob)}</div>`:''}</div>` : `
     <div class="row between"><b class="sec">งานปัจจุบัน</b><span class="chip ${st.c}">${st.t}</span></div>
     <div class="autobox" style="margin:10px 0 0">
+      <div class="kv">${ico('flag')}<span>ต้นทาง</span><b>: ${esc(t.originName||'–')}</b></div>
       <div class="kv">${ico('factory')}<span>ปลายทาง</span><b>: ${esc(t.destName||'–')}</b></div>
       <div class="kv">${ico('cal')}<span>นัดถึง</span><b>: ${fmtDT(t.etaAt)} ${late?'<span class="chip c-red">เลยเวลานัด</span>':''}</b></div>
       <div class="kv">${ico('flag')}<span>สแตนบาย</span><b>: ${fmtDT(t.standbyAt)}</b></div>
@@ -839,7 +845,7 @@ function renderAdmin(){
     renderSel();
     $('aList').innerHTML = ids.length ? sorted.map(id => { const t=S.trucks[id], st=ST[t.status]||ST.idle;
       const chip = isAlert(t) ? `<span class="chip c-red">${esc(alertText(t))}</span>` : `<span class="chip ${st.c}">${st.t}</span>`;
-      return `<button class="trk" data-sel="${id}" aria-current="${id===selTruck}"><span class="dot ${online(t)?'on':''}"></span><div class="grow"><b>${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span><div class="small muted">${esc(t.destName || 'ยังไม่มีงาน')}</div></div>${chip}</button>`; }).join('')
+      return `<button class="trk" data-sel="${id}" aria-current="${id===selTruck}"><span class="dot ${online(t)?'on':''}"></span><div class="grow"><b>${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span><div class="small muted">${hasAssignedJob(t) ? esc((t.originName ? t.originName + ' → ' : '') + t.destName) : 'ยังไม่มีงาน'}</div></div>${chip}</button>`; }).join('')
       : `<div class="empty">ยังไม่มีรถ เพิ่มได้ที่เมนู “จัดการผู้ใช้งาน”</div>`;
     $('liveList').innerHTML = feedHTML(S.events.slice(0,6), true) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
   }
@@ -850,9 +856,9 @@ function renderAdmin(){
       : `<div class="empty">ไม่มีเหตุแจ้งเตือนตอนนี้ 👍</div>`;
   }
   if (aTab==='jobs'){
-    $('atJobs').innerHTML = ids.length ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ทะเบียน / คนขับ</th><th>สถานะ</th><th>ปลายทาง</th><th>นัดถึง</th><th>น้ำมัน</th></tr></thead><tbody>${
+    $('atJobs').innerHTML = ids.length ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ทะเบียน / คนขับ</th><th>สถานะ</th><th>ต้นทาง → ปลายทาง</th><th>นัดถึง</th><th>น้ำมัน</th><th></th></tr></thead><tbody>${
       sorted.map(id => { const t=S.trucks[id], st=ST[t.status]||ST.idle;
-        return `<tr><td><b>${esc(t.plate)}</b><div class="small muted">${esc(t.driver)}</div></td><td><span class="chip ${st.c}">${st.t}</span>${isAlert(t)?`<div class="small" style="color:var(--red);font-weight:700">${esc(alertText(t))}</div>`:''}</td><td>${esc(t.destName||'–')}</td><td>${t.etaAt?fmtDT(t.etaAt):'–'}${isLate(t)?'<div class="small" style="color:var(--red);font-weight:700">เลยเวลานัด</div>':''}</td><td class="small">${esc(fuelSumTxt(fuelOf(t))||'–')}</td></tr>`; }).join('')
+        return `<tr><td><b>${esc(t.plate)}</b><div class="small muted">${esc(t.driver)}</div></td><td><span class="chip ${st.c}">${st.t}</span>${isAlert(t)?`<div class="small" style="color:var(--red);font-weight:700">${esc(alertText(t))}</div>`:''}</td><td>${hasAssignedJob(t)?`${esc(t.originName||'–')} → <b>${esc(t.destName)}</b>`:'<span class="muted">ยังไม่มีงาน</span>'}</td><td>${t.etaAt?fmtDT(t.etaAt):'–'}${isLate(t)?'<div class="small" style="color:var(--red);font-weight:700">เลยเวลานัด</div>':''}</td><td class="small">${esc(fuelSumTxt(fuelOf(t))||'–')}</td><td><button class="btn btn-sm btn-orange" data-assign="${id}">${hasAssignedJob(t)?'แก้งาน':'มอบหมาย'}</button></td></tr>`; }).join('')
     }</tbody></table></div>` : `<div class="empty">ยังไม่มีรถ</div>`;
   }
   if (aTab==='ev') $('evList').innerHTML = feedHTML(S.events, true) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
@@ -877,12 +883,14 @@ function renderSel(){
   $('selCard').innerHTML = head + `
     <div class="sel-truck"><span class="tk">${IC.bigtruck}</span><div class="grow"><b class="pl">${esc(t.plate)}</b><div>คนขับ: ${esc(t.driver)}</div></div><span class="chip ${on?'c-green':''}">${on?'ออนไลน์':'ออฟไลน์'}</span></div>
     <div class="pad" style="padding-bottom:0"><div class="autobox" style="margin:0">
+      <div class="kv">${ico('flag')}<span>ต้นทาง</span><b>: ${esc(t.originName||'–')}</b></div>
       <div class="kv">${ico('factory')}<span>ปลายทาง</span><b>: ${esc(t.destName||'–')}${t.etaAt?` · นัด ${fmtDT(t.etaAt)}`:''}</b></div>
       <div class="kv">${ico('gps')}<span>ความเร็ว</span><b>: <span class="spd">${t.moving ? Math.round(t.speed||0) : 0}</span> กม./ชม. ${t.moving?'<span class="chip c-green">กำลังวิ่ง</span>':'<span class="chip">จอดอยู่</span>'}</b></div>
       <div class="kv">${ico('pin')}<span>GPS ล่าสุด</span><b>: ${t.gpsAt?`<span id="selAgo" data-at="${t.gpsAt}">${agoTxt(t.gpsAt)}</span>`:'–'}${t.lat!=null?` · <a href="https://www.google.com/maps?q=${(+t.lat).toFixed(6)},${(+t.lng).toFixed(6)}" target="_blank" rel="noopener">เปิดแผนที่</a>`:''}</b></div>
       <div class="kv">${ico('clock')}<span>ขยับล่าสุด</span><b>: ${t.lastMoveAt?`${fmtT(t.lastMoveAt)} (${durTxt(mins(t.lastMoveAt))}ที่แล้ว)`:'–'}</b></div>
       ${fuelOf(t).length?`<div class="kv">${ico('fuel')}<span>เติมน้ำมัน</span><b>: ${esc(fuelSumTxt(fuelOf(t)))}</b></div>`:''}
     </div></div>
+    <div class="pad" style="padding:8px 14px 0"><button class="btn btn-orange btn-block" data-assign="${id}">${ico('list')}${hasAssignedJob(t)?'เปลี่ยนต้นทาง / ปลายทาง':'มอบหมายงานใหม่'}</button></div>
     <div class="cmd3">
       <button class="cbtn cb-ring" id="cRing">${ico('bell')}กดกริ่ง<small>(แจ้งเตือนดัง)</small></button>
       <button class="cbtn cb-mic" id="cMic">${ico('mic')}พูดผ่านไมค์<small>(กดค้างเพื่อพูด)</small></button>
@@ -916,6 +924,45 @@ function sendCmd(id, cmd){
   }).catch(() => toast('ส่งไม่สำเร็จ ตรวจอินเทอร์เน็ต'));
   addEvent(cmd.type, cmd.type==='announce' ? (cmd.text || 'ข้อความเสียง') : '', '', null, id);
 }
+
+/* ===== admin: assign a job (origin -> destination) ===== */
+let asgTruck = null;
+function openAssign(id){
+  const t = S.trucks[id]; if (!t) return;
+  asgTruck = id;
+  const pl = placeList();
+  const opts = sel => `<option value="">— เลือก —</option>` + pl.map(([pid,p]) => `<option value="${pid}"${pid===sel?' selected':''}>${esc(p.name)}</option>`).join('');
+  $('asgWho').textContent = `${t.driver} · ${t.plate}`;
+  $('asgO').innerHTML = opts(hasAssignedJob(t) ? t.originId : ''); $('asgD').innerHTML = opts(hasAssignedJob(t) ? t.destId : '');
+  $('asgHelp').hidden = pl.length >= 2;
+  if (hasAssignedJob(t) && t.etaAt){ const d = new Date(t.etaAt); $('asgTime').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const k = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString()))/864e5); $('asgDay').value = String(Math.min(2, Math.max(0, k))); }
+  else $('asgDay').value = '';
+  $('asgGo').textContent = hasAssignedJob(t) ? 'บันทึกการเปลี่ยนงาน' : 'มอบหมายงาน';
+  $('asgOv').hidden = false; paintIcons($('asgOv'));
+}
+$('asgClose').onclick = () => { $('asgOv').hidden = true; asgTruck = null; };
+$('asgGo').onclick = async () => {
+  const id = asgTruck, t = S.trucks[id]; if (!t) return;
+  const o = $('asgO').value, d = $('asgD').value;
+  if (!o || !d){ toast('เลือกต้นทางและปลายทาง'); return; }
+  if (o === d){ toast('ต้นทางกับปลายทางต้องไม่ใช่ที่เดียวกัน'); return; }
+  const oName = S.places[o].name, dName = S.places[d].name, now = Date.now();
+  let etaAt = null;
+  if ($('asgDay').value !== '' && $('asgTime').value){ const [hh, mm] = $('asgTime').value.split(':').map(Number); const x = new Date(); x.setDate(x.getDate() + (+$('asgDay').value)); x.setHours(hh, mm, 0, 0); etaAt = x.getTime(); }
+  const isNew = !hasAssignedJob(t);
+  const patch = {originId:o, originName:oName, destId:d, destName:dName, etaAt, assignedAt: now, updatedAt: now};
+  if (isNew) Object.assign(patch, {status:'assigned', fuel:[], jobStart: now, jobId: rid(), headIn:null, tailIn:null, delay:null, standbyAt:null, departAt:null, arriveAt:null});
+  $('asgGo').disabled = true;
+  try {
+    await db.doc('trucks/'+id).update(patch);
+    addEvent('assign', `${oName} → ${dName}${etaAt?` · นัดถึง ${fmtDT(etaAt)}`:''}`, '', null, id);
+    if ($('asgSay').checked) sendCmd(id, {type:'announce', text: `${isNew ? 'มีงานใหม่' : 'เปลี่ยนงาน'} ต้นทาง ${oName} ปลายทาง ${dName}`});
+    $('asgOv').hidden = true; asgTruck = null; toast(isNew ? 'มอบหมายงานแล้ว' : 'บันทึกการเปลี่ยนงานแล้ว');
+  } catch(e){ toast('บันทึกไม่สำเร็จ ตรวจอินเทอร์เน็ต'); }
+  finally { $('asgGo').disabled = false; }
+};
+document.addEventListener('click', e => { const b = e.target.closest('[data-assign]'); if (b){ e.stopPropagation(); openAssign(b.dataset.assign); } });
 
 /* "x seconds ago" that ticks every second for the selected truck */
 function agoTxt(ms){ const s = Math.max(0, Math.round((Date.now()-ms)/1000)); return s < 60 ? `${s} วินาทีที่แล้ว` : s < 3600 ? `${Math.floor(s/60)} นาทีที่แล้ว` : `${fmtT(ms)}`; }
@@ -1104,6 +1151,7 @@ function paintVersion(){ const v = call('appVersion') || ''; document.querySelec
 window.onAndroidBack = () => {
   if (!$('photoOv').hidden){ $('photoOv').hidden = true; return true; }
   if (!$('updOv').hidden){ $('updLater').click(); return true; }
+  if (!$('asgOv').hidden){ $('asgClose').click(); return true; }
   if (!$('credOv').hidden){ $('credClose').click(); return true; }
   if (!$('cmdOv').hidden){ $('cmdOk').click(); return true; }
   if (!$('dDrawer').hidden){ closeDrawer(); return true; }
