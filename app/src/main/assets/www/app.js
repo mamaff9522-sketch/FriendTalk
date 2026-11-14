@@ -42,6 +42,7 @@ const IC = {
   logout:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h6v-2H5V5h5zm6.6 4.6L15.2 9l2 2H9v2h8.2l-2 2 1.4 1.4L21 12z"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4.5"/><path d="M11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z"/></svg>',
   photo:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 13h14l-4.5-6-3.5 4.5-2.5-3z"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>',
   speak:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1A9 9 0 0 0 14 3.2z"/></svg>',
   bigtruck:'<svg viewBox="0 0 70 44"><rect x="2" y="6" width="42" height="24" rx="2" fill="#eef2f8" stroke="#9aa8c0"/><path d="M46 12h11l10 11v8H46z" fill="#2b4f9e"/><path d="M49 15h7l7 7.5H49z" fill="#bcd3f5"/><rect x="2" y="30" width="65" height="4" fill="#334"/><circle cx="12" cy="36" r="5" fill="#222"/><circle cx="24" cy="36" r="5" fill="#222"/><circle cx="56" cy="36" r="5" fill="#222"/><circle cx="12" cy="36" r="2" fill="#aaa"/><circle cx="24" cy="36" r="2" fill="#aaa"/><circle cx="56" cy="36" r="2" fill="#aaa"/></svg>',
 };
@@ -1222,6 +1223,53 @@ document.addEventListener('click', e => {
   const tl = e.target.closest('[data-tel]'); if (tl && A){ e.preventDefault(); call('openUrl', telHref(tl.dataset.tel)); }
 });
 
+/* ===== find / pick a truck ===== */
+const normPlate = v => String(v||'').toLowerCase().replace(/[\s\-–.·]/g, '');
+function truckMatches(q){
+  const n = normPlate(q);
+  return Object.entries(S.trucks).filter(([id, t]) => !n
+      || normPlate(t.plate).includes(n) || normPlate(t.driver).includes(n)
+      || normPlate(t.code).includes(n) || normPlate(t.username).includes(n) || normPlate(t.phone).includes(n))
+    .sort((a,b) => (a[1].plate||'').localeCompare(b[1].plate||'','th'));
+}
+function hl(text, q){
+  const t = String(text||''), n = normPlate(q); if (!n) return esc(t);
+  // highlight ignoring dashes/spaces: map each kept char back to its position
+  const keep = []; for (let i = 0; i < t.length; i++) if (!/[\s\-–.·]/.test(t[i])) keep.push(i);
+  const idx = keep.map(i => t[i].toLowerCase()).join('').indexOf(n); if (idx < 0) return esc(t);
+  const a = keep[idx], b = keep[idx + n.length - 1] + 1;
+  return esc(t.slice(0,a)) + '<mark>' + esc(t.slice(a,b)) + '</mark>' + esc(t.slice(b));
+}
+function renderTruckSearch(){
+  const q = $('tsIn').value.trim(), list = truckMatches(q);
+  $('tsClr').hidden = !q;
+  $('tsRes').innerHTML = list.length ? list.slice(0, 50).map(([id, t]) => { const st = ST[t.status]||ST.idle;
+    return `<div class="ts-row"><span class="dot ${online(t)?'on':''}"></span>
+      <button class="who" data-pick-truck="${id}"><b>${hl(t.plate, q)}</b> <span class="small muted">· ${hl(t.driver, q)}</span>
+        <div class="small">${isAlert(t)?`<span style="color:var(--red);font-weight:700">${esc(alertText(t))}</span>`:`<span class="chip ${st.c}" style="padding:1px 8px">${st.t}</span>`} ${hasAssignedJob(t)?esc((t.originName?t.originName+' → ':'')+t.destName):''}</div></button>
+      <button class="btn btn-orange" data-assign="${id}" data-ts-close="1">${hasAssignedJob(t)?'แก้งาน':'มอบหมาย'}</button></div>`; }).join('')
+    : `<div class="empty">ไม่พบรถ “${esc(q)}”</div>`;
+  $('tsRes').hidden = false; paintIcons($('tsRes'));
+}
+function closeTruckSearch(){ $('tsRes').hidden = true; }
+$('tsIn').addEventListener('input', renderTruckSearch);
+$('tsIn').addEventListener('focus', renderTruckSearch);
+$('tsIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ const m = truckMatches($('tsIn').value.trim()); if (m.length === 1) pickTruck(m[0][0]); } });
+$('tsAll').onclick = () => { $('tsRes').hidden ? renderTruckSearch() : closeTruckSearch(); };
+$('tsClr').onclick = () => { $('tsIn').value = ''; renderTruckSearch(); $('tsIn').focus(); };
+function pickTruck(id){
+  const t = S.trucks[id]; if (!t) return;
+  closeTruckSearch(); $('tsIn').value = t.plate; $('tsClr').hidden = false; $('tsIn').blur();
+  selTruck = id; aTab = 'ov'; aFollow = false; renderAdmin();
+  setTimeout(() => { if (aMap){ aMap.resize(); if (t.lat != null) aMap.flyTo({center: ll(t), zoom: 16, pitch: 60}); }
+    $('selCard').scrollIntoView({behavior:'smooth', block: innerWidth <= 820 ? 'start' : 'nearest'}); }, 80);
+}
+document.addEventListener('click', e => {
+  const p = e.target.closest('[data-pick-truck]'); if (p){ pickTruck(p.dataset.pickTruck); return; }
+  if (e.target.closest('[data-ts-close]')){ closeTruckSearch(); return; }
+  if (!e.target.closest('#tsWrap')) closeTruckSearch();
+});
+
 /* ===== completed-job summary per truck ===== */
 function renderFleet(){
   const ids = Object.keys(S.trucks).sort((a,b)=>(S.trucks[a].plate||'').localeCompare(S.trucks[b].plate||'','th'));
@@ -1435,6 +1483,7 @@ window.onAndroidBack = () => {
   if (!$('updOv').hidden){ $('updLater').click(); return true; }
   if (!$('asgOv').hidden){ $('asgClose').click(); return true; }
   if (!$('jobOv').hidden){ $('jobClose').click(); return true; }
+  if (!$('tsRes').hidden){ closeTruckSearch(); return true; }
   if (!$('credOv').hidden){ $('credClose').click(); return true; }
   if (!$('cmdOv').hidden){ $('cmdOk').click(); return true; }
   if (!$('dDrawer').hidden){ closeDrawer(); return true; }

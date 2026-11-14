@@ -303,6 +303,18 @@ textarea.input{min-height:84px;resize:vertical}
 .stc .acts .btn i{width:18px;height:18px}
 .stc.alert{border-color:var(--red)}
 
+/* truck search */
+.tsearch{position:relative;margin-bottom:12px;z-index:12}
+.tsearch .field{background:var(--surface);box-shadow:var(--sh)}
+.tsearch .field input{font-size:15px}
+.ts-res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 30px rgba(15,27,51,.2);max-height:60vh;overflow:auto}
+.ts-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.ts-row:last-child{border-bottom:0}
+.ts-row .who{flex:1;min-width:0;background:none;border:0;text-align:left;padding:0}
+.ts-row .who b{font-size:16px}
+.ts-row .btn{min-height:36px;font-size:13px;padding:5px 10px}
+.ts-row mark{background:#ffe08a;border-radius:3px;padding:0 1px}
+
 /* app update */
 .bar{height:10px;border-radius:999px;background:var(--s2);overflow:hidden}
 .bar span{display:block;height:100%;width:0;background:var(--green);transition:width .2s}

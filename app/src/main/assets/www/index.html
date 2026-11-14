@@ -270,6 +270,11 @@
     </header>
 
     <div class="apage">
+      <!-- find a truck by plate or driver -->
+      <div class="tsearch" id="tsWrap">
+        <span class="field"><i data-i="search"></i><input id="tsIn" placeholder="ค้นหา / เลือกรถ: พิมพ์ทะเบียน เช่น 723582 หรือชื่อคนขับ" autocomplete="off" inputmode="search"><button class="link small" id="tsClr" type="button" hidden>ล้าง</button><button class="link small" id="tsAll" type="button">ทุกคัน ▾</button></span>
+        <div class="ts-res" id="tsRes" hidden></div>
+      </div>
       <!-- OVERVIEW -->
       <div id="atOv" class="ov-grid">
         <div class="card amap-card"><div class="amap" id="aMap"></div></div>
