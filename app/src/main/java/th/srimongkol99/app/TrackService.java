@@ -85,6 +85,8 @@ public class TrackService extends Service implements LocationListener {
     private long lastMoveAt = 0, lastWrite = 0, lastGpsFix = 0;
     private boolean moving = false;
     private long liveMs = 5_000L;   // write interval while driving ("real time")
+    private Boolean flaggedMock = null, flaggedOff = null;
+    private long lastMockWrite = 0;
 
     private long lastUpdateCheck = 0;
 
@@ -92,6 +94,7 @@ public class TrackService extends Service implements LocationListener {
         @Override
         public void run() {
             if (!MainActivity.foreground) io.execute(TrackService.this::checkCommand);
+            checkGpsOff();
             if (System.currentTimeMillis() - lastUpdateCheck > 6 * 3600_000L) {
                 lastUpdateCheck = System.currentTimeMillis();
                 io.execute(() -> {
@@ -199,6 +202,22 @@ public class TrackService extends Service implements LocationListener {
     @Override
     public void onLocationChanged(Location l) {
         long now = System.currentTimeMillis();
+        if (isMock(l)) {
+            // a "fake GPS" app is feeding the phone a made-up position: never use it, tell the admin
+            if (!Boolean.TRUE.equals(flaggedMock) || now - lastMockWrite > 5 * 60_000L) {
+                lastMockWrite = now;
+                boolean first = !Boolean.TRUE.equals(flaggedMock);
+                flaggedMock = true;
+                writeFlag("gpsMock", true, now);
+                if (first) addEvent("gpsmock", "ตรวจพบแอป GPS ปลอม ระบบไม่รับตำแหน่งนี้");
+            }
+            return;
+        }
+        if (Boolean.TRUE.equals(flaggedMock)) {
+            flaggedMock = false;
+            writeFlag("gpsMock", false, now);
+            addEvent("gpsreal", "กลับมาใช้ GPS จริงแล้ว");
+        }
         boolean isGps = LocationManager.GPS_PROVIDER.equals(l.getProvider());
         if (isGps) lastGpsFix = now;
         else if (now - lastGpsFix < 90_000L) return; // prefer GPS when we have it
@@ -244,10 +263,79 @@ public class TrackService extends Service implements LocationListener {
 
     @Override
     public void onProviderEnabled(String provider) {
+        if (LocationManager.GPS_PROVIDER.equals(provider)) checkGpsOff();
     }
 
     @Override
     public void onProviderDisabled(String provider) {
+        if (LocationManager.GPS_PROVIDER.equals(provider)) checkGpsOff();
+    }
+
+    @SuppressWarnings("deprecation")
+    private static boolean isMock(Location l) {
+        if (Build.VERSION.SDK_INT >= 31) return l.isMock();
+        return l.isFromMockProvider();
+    }
+
+    /** Driver turned location off (or took the permission away): tell the admin. */
+    private void checkGpsOff() {
+        boolean off;
+        try {
+            off = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED;
+        } catch (Exception e) {
+            return;
+        }
+        if (flaggedOff != null && flaggedOff == off) return;
+        boolean changed = flaggedOff != null;
+        flaggedOff = off;
+        writeFlag("gpsOff", off, System.currentTimeMillis());
+        if (off) addEvent("gpsoff", "คนขับปิด GPS / ปิดตำแหน่งของมือถือ");
+        else if (changed) {
+            addEvent("gpsreal", "เปิด GPS กลับมาแล้ว");
+            startLocation();
+        }
+    }
+
+    private void writeFlag(final String key, final boolean value, final long at) {
+        io.execute(() -> {
+            try {
+                JSONObject f = new JSONObject();
+                f.put(key, new JSONObject().put("booleanValue", value));
+                f.put(key + "At", integer(at));
+                String url = docUrl("trucks/" + truckId) + "?currentDocument.exists=true&updateMask.fieldPaths=" + key
+                        + "&updateMask.fieldPaths=" + key + "At";
+                http("PATCH", url, new JSONObject().put("fields", f).toString(), true);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private void addEvent(final String type, final String text) {
+        final long at = System.currentTimeMillis();
+        io.execute(() -> {
+            try {
+                String truck = http("GET", docUrl("trucks/" + truckId), null, true);
+                String plate = "", driver = "";
+                if (truck != null) {
+                    JSONObject f = new JSONObject(truck).optJSONObject("fields");
+                    if (f != null) {
+                        plate = str(f, "plate");
+                        driver = str(f, "driver");
+                    }
+                }
+                JSONObject e = new JSONObject();
+                e.put("truck", new JSONObject().put("stringValue", truckId));
+                e.put("plate", new JSONObject().put("stringValue", plate));
+                e.put("driver", new JSONObject().put("stringValue", driver));
+                e.put("type", new JSONObject().put("stringValue", type));
+                e.put("text", new JSONObject().put("stringValue", text));
+                e.put("at", integer(at));
+                http("POST", docUrl("events"), new JSONObject().put("fields", e).toString(), true);
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     private void write() {

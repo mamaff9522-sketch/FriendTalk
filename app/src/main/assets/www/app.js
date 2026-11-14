@@ -130,6 +130,10 @@ const EV = {
   announce:{t:'แอดมินประกาศเสียง', i:'mic', bg:'#1f5fd6'},
   ack:{t:'คนขับรับทราบกริ่ง', i:'okc', bg:'#1f9d50'},
   fuel:{t:'เติมน้ำมัน', i:'fuel', bg:'#0f7a78'},
+  gpsmock:{t:'⚠ ตรวจพบ GPS ปลอม', i:'warn', bg:'#e0352b'},
+  gpsoff:{t:'⚠ คนขับปิด GPS', i:'warn', bg:'#e0352b'},
+  gpsreal:{t:'GPS กลับมาปกติ', i:'gps', bg:'#1f9d50'},
+  logout:{t:'คนขับออกจากระบบ (GPS หยุด)', i:'logout', bg:'#5d6a84'},
 };
 const DEFAULT_CENTER = [13.7563, 100.5018];
 
@@ -352,12 +356,16 @@ function renderDriver(){
   const hasPerm = A ? !!call('hasLocation') : true;
   const gpsCard = document.querySelector('#dHome .gps');
   gpsCard.classList.toggle('off', !hasPerm || !tracking);
-  $('gpsTitle').textContent = !hasPerm ? 'ยังไม่ได้อนุญาต GPS' : tracking ? 'GPS กำลังติดตาม' : 'GPS ยังไม่ทำงาน';
+  $('gpsTitle').textContent = t.gpsMock ? '⚠ ตรวจพบแอป GPS ปลอม' : t.gpsOff ? '⚠ GPS ของมือถือปิดอยู่' : !hasPerm ? 'ยังไม่ได้อนุญาต GPS' : tracking ? 'GPS กำลังติดตาม' : 'GPS ยังไม่ทำงาน';
+  if (t.gpsMock || t.gpsOff) gpsCard.classList.add('off', 'bad');
+  else gpsCard.classList.remove('bad');
   $('gpsAllow').hidden = hasPerm && tracking;
   $('gpsAllow').textContent = hasPerm ? 'เริ่มติดตาม' : 'อนุญาต GPS';
   { const l = lastLoc(), fresh = l && Date.now()-(l.at||0) < 60000;
     const kmh = fresh ? Math.round(l.kmh||0) : (t.moving ? Math.round(t.speed||0) : 0);
-    $('gpsSub').textContent = (fresh || t.gpsAt) ? `อัปเดตล่าสุด: ${fmtT(fresh ? l.at : t.gpsAt)} · ${kmh} กม./ชม.` : 'รอสัญญาณ GPS…'; }
+    if (t.gpsMock){ $('gpsSub').textContent = 'ปิดแอปจำลองตำแหน่ง (Fake GPS) ระบบใช้เฉพาะ GPS จริง และแจ้งแอดมินแล้ว'; }
+    else if (t.gpsOff){ $('gpsSub').textContent = 'เปิด “ตำแหน่ง” ของมือถือ ระบบแจ้งแอดมินแล้ว'; }
+    else $('gpsSub').textContent = (fresh || t.gpsAt) ? `อัปเดตล่าสุด: ${fmtT(fresh ? l.at : t.gpsAt)} · ${kmh} กม./ชม.` : 'รอสัญญาณ GPS…'; }
   updateDriverMap(t);
 
   // job strip
@@ -606,6 +614,12 @@ function showFuLoc(){
 }
 function readGps(){
   $('fuLocChip').className='chip'; $('fuLocChip').textContent='กำลังหาตำแหน่ง…';
+  if (A){   // the app's own GPS (fake-GPS apps are rejected there); the driver cannot type or pick a location
+    const l = lastLoc();
+    if (l && Date.now() - (l.at||0) < 3*60000){ fuLoc = {lat:+l.lat, lng:+l.lng, acc:l.acc}; showFuLoc(); }
+    else { fuLoc = null; showFuLoc(); toast('ยังไม่มีสัญญาณ GPS ล่าสุด รอสักครู่แล้วกดอ่านใหม่'); }
+    return;
+  }
   const fallback = () => { const l = lastLoc(); if (l && Date.now() - (l.at||0) < 10*60000){ fuLoc = {lat:+l.lat, lng:+l.lng, acc:l.acc}; } showFuLoc(); if(!fuLoc) toast('อ่าน GPS ไม่ได้ ลองออกไปที่โล่งแล้วกดอ่านใหม่'); };
   if (!navigator.geolocation){ fallback(); return; }
   navigator.geolocation.getCurrentPosition(p => { fuLoc = {lat:p.coords.latitude, lng:p.coords.longitude, acc:p.coords.accuracy}; showFuLoc(); }, fallback, {enableHighAccuracy:true, timeout:12000, maximumAge:30000});
@@ -668,6 +682,7 @@ function renderJobs(t){
 /* profile */
 $('pfScreen').onchange = e => { ls.set('screenOn', e.target.checked); call('keepScreenOn', e.target.checked); };
 $('pfLogout').onclick = () => { if ($('pfLogout').dataset.sure !== '1'){ $('pfLogout').dataset.sure='1'; $('pfLogout').querySelector('.grow').textContent='แตะอีกครั้งเพื่อออกจากระบบ (GPS จะหยุดส่ง)'; setTimeout(()=>{ $('pfLogout').dataset.sure=''; $('pfLogout').querySelector('.grow').textContent='ออกจากระบบ'; }, 3500); return; }
+  addEvent('logout', ''); db.doc('trucks/'+myTruck).update({loggedOutAt: Date.now()}).catch(()=>{});
   driverLogout('ออกจากระบบแล้ว'); };
 
 /* writes */
@@ -760,8 +775,12 @@ const isParked = t => t.status==='enroute' && !t.moving && mins(t.lastMoveAt||t.
 const isLost = t => ['enroute','loading','standby'].includes(t.status) && t.gpsAt && mins(t.gpsAt) >= 20;
 const isLate = t => t.etaAt && Date.now() > t.etaAt && ['standby','loading','enroute'].includes(t.status);
 const hasDelay = t => t.delay && t.status !== 'done';
-const isAlert = t => isParked(t) || hasDelay(t) || isLost(t);
+const isFake = t => !!t.gpsMock;
+const isOff = t => !!t.gpsOff;
+const isAlert = t => isFake(t) || isOff(t) || isParked(t) || hasDelay(t) || isLost(t);
 function alertText(t){
+  if (isFake(t)) return 'ตรวจพบ GPS ปลอม';
+  if (isOff(t)) return 'คนขับปิด GPS';
   if (isParked(t)) return `รถจอดนิ่งเกิน ${thr} นาที`;
   if (hasDelay(t)) return 'แจ้งเหตุล่าช้า';
   if (isLost(t)) return 'สัญญาณ GPS หาย';
@@ -851,7 +870,7 @@ function renderAdmin(){
   }
   if (aTab==='al'){
     $('atAl').innerHTML = alerts.length ? alerts.map(id => { const t = S.trucks[id];
-      const detail = isParked(t) ? `จอดมาแล้ว ${durTxt(mins(t.lastMoveAt||t.departAt))}` : hasDelay(t) ? `${esc(t.delay.reason)} · ${fmtT(t.delay.at)}` : `ไม่มีสัญญาณมา ${durTxt(mins(t.gpsAt))}`;
+      const detail = isFake(t) ? `ตั้งแต่ ${fmtT(t.gpsMockAt)} · ระบบไม่รับตำแหน่งปลอม แผนที่แสดงตำแหน่งจริงล่าสุด` : isOff(t) ? `ตั้งแต่ ${fmtT(t.gpsOffAt)}` : isParked(t) ? `จอดมาแล้ว ${durTxt(mins(t.lastMoveAt||t.departAt))}` : hasDelay(t) ? `${esc(t.delay.reason)} · ${fmtT(t.delay.at)}` : `ไม่มีสัญญาณมา ${durTxt(mins(t.gpsAt))}`;
       return `<div class="al-item"><span class="sev"></span><div class="grow"><b>${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span><div><b style="color:var(--red)">${esc(alertText(t))}</b> <span class="small">${detail}</span></div></div><button class="btn btn-ghost btn-sm" data-goto="${id}">ดูรถ</button></div>`; }).join('')
       : `<div class="empty">ไม่มีเหตุแจ้งเตือนตอนนี้ 👍</div>`;
   }
