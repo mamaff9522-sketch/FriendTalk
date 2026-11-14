@@ -153,7 +153,7 @@ final class Updater {
             Intent open = new Intent(c, MainActivity.class);
             open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             PendingIntent pi = PendingIntent.getActivity(c, 3, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            NotificationCompat.Builder b = new NotificationCompat.Builder(c, "track")
+            NotificationCompat.Builder b = new NotificationCompat.Builder(c, "update")
                     .setSmallIcon(R.drawable.ic_stat)
                     .setContentTitle("ศรีมงคล 99 มีเวอร์ชันใหม่ " + info.optString("versionName"))
                     .setContentText("แตะเพื่อเปิดแอปแล้วกดอัปเดต")

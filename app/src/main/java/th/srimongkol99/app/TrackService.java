@@ -58,7 +58,7 @@ public class TrackService extends Service implements LocationListener {
     static final String PREFS = "sm99";
     static volatile boolean running = false;
 
-    private static final String CH_TRACK = "track";
+    private static final String CH_TRACK = "track_quiet";   // minimum-importance: no sound, no status-bar icon, hidden on lock screen
     private static final String CH_CMD = "cmd_alarm";
     private static final int NOTIF_TRACK = 1;
     private static final int NOTIF_CMD = 2;
@@ -368,9 +368,20 @@ public class TrackService extends Service implements LocationListener {
 
     private void makeChannels() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        NotificationChannel t = new NotificationChannel(CH_TRACK, "ติดตาม GPS", NotificationManager.IMPORTANCE_LOW);
-        t.setDescription("แสดงขณะแอปส่งตำแหน่งรถให้ศูนย์ควบคุม");
+        try {
+            nm.deleteNotificationChannel("track");   // old, louder channel from earlier versions
+        } catch (Exception ignored) {
+        }
+        NotificationChannel t = new NotificationChannel(CH_TRACK, "แอปทำงานเบื้องหลัง", NotificationManager.IMPORTANCE_MIN);
+        t.setDescription("Android บังคับให้มีรายการนี้ขณะแอปทำงาน ตั้งไว้แบบเงียบที่สุด");
+        t.setShowBadge(false);
+        t.enableVibration(false);
+        t.setSound(null, null);
+        t.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
         nm.createNotificationChannel(t);
+        NotificationChannel u = new NotificationChannel("update", "อัปเดตแอป", NotificationManager.IMPORTANCE_DEFAULT);
+        u.setDescription("แจ้งเมื่อมีแอปเวอร์ชันใหม่");
+        nm.createNotificationChannel(u);
         NotificationChannel c = new NotificationChannel(CH_CMD, "กริ่งและเสียงจากแอดมิน", NotificationManager.IMPORTANCE_HIGH);
         c.setDescription("แจ้งเตือนเมื่อแอดมินกดกริ่งหรือประกาศเสียง");
         c.enableVibration(true);
@@ -388,8 +399,12 @@ public class TrackService extends Service implements LocationListener {
     private Notification trackNotification() {
         return new NotificationCompat.Builder(this, CH_TRACK)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setContentTitle("ศรีมงคล 99 · GPS กำลังติดตาม")
-                .setContentText("กำลังส่งตำแหน่งรถให้ศูนย์ควบคุม")
+                .setContentTitle("ศรีมงคล 99 กำลังทำงาน")
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setSilent(true)
+                .setShowWhen(false)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
                 .setOngoing(true)
                 .setColor(0xFF123778)
                 .setContentIntent(openApp())
