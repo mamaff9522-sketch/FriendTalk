@@ -155,15 +155,29 @@ function boot(){
   db = firebase.firestore();
   try { db.enablePersistence({synchronizeTabs:false}).catch(()=>{}); } catch(e){}
   auth.onAuthStateChanged(u => { user = u; if (u) startData(); });
-  auth.signInAnonymously().catch(err => {
-    $('startMsg').hidden = false;
-    $('startMsg').textContent = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจอินเทอร์เน็ตแล้วเปิดแอปใหม่' + (err && err.code ? ` (${err.code})` : '');
-  });
+  signIn();
   route();
   setInterval(() => { if (role==='admin' && !$('scrAdmin').hidden) renderAdmin(); else if (role==='driver') renderDriver(); }, 30000);
   window.addEventListener('online', () => renderDriver());
   window.addEventListener('offline', () => renderDriver());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkCmd(); });
+}
+
+/* sign in (anonymous); keep retrying so the app recovers by itself */
+let authErr = '';
+function signIn(){
+  if (auth.currentUser) return;
+  auth.signInAnonymously().then(() => { authErr = ''; renderAll(); }).catch(err => {
+    const code = (err && err.code) || '';
+    authErr = code === 'auth/admin-restricted-operation' || code === 'auth/operation-not-allowed'
+      ? 'ยังไม่ได้เปิดการเข้าสู่ระบบแบบ “ไม่ระบุชื่อ” ใน Firebase'
+      : code === 'auth/network-request-failed' ? 'ไม่มีอินเทอร์เน็ต กำลังลองใหม่…'
+      : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กำลังลองใหม่…';
+    if (code) authErr += ` (${code})`;
+    $('startMsg').hidden = false; $('startMsg').textContent = authErr;
+    renderAll(); if (!$('scrPick').hidden) renderPick();
+    setTimeout(signIn, 5000);
+  });
 }
 
 let dataStarted = false;
@@ -211,7 +225,7 @@ function renderPick(){
   const ids = Object.keys(S.trucks).sort((a,b)=>(S.trucks[a].driver||'').localeCompare(S.trucks[b].driver||'','th'));
   $('pickList').innerHTML = ids.length ? ids.map(id => { const t=S.trucks[id];
     return `<button class="card prof" data-pick="${id}" style="width:100%;text-align:left"><div class="avatar">${ico('driver')}</div><div class="grow"><b class="pname">${esc(t.driver)}</b><div class="small muted">รหัส ${esc(t.code||'–')} · ${esc(t.plate)}</div></div>${ico('chev')}</button>`; }).join('')
-    : `<div class="card empty">${user ? 'ยังไม่มีรายชื่อคนขับ ให้แอดมินเพิ่มที่เมนู “จัดการผู้ใช้งาน” ก่อน' : 'กำลังโหลดรายชื่อ…'}</div>`;
+    : `<div class="card empty">${user ? 'ยังไม่มีรายชื่อคนขับ ให้แอดมินเพิ่มที่เมนู “จัดการผู้ใช้งาน” ก่อน' : esc(authErr || 'กำลังโหลดรายชื่อ…')}</div>`;
 }
 $('pickList').addEventListener('click', e => {
   const b = e.target.closest('[data-pick]'); if(!b) return;
@@ -608,7 +622,8 @@ function openPin(){
     $('pinTitle').textContent = first ? 'ตั้งรหัสแอดมินครั้งแรก' : 'ใส่รหัสแอดมิน';
     $('pinHelp').textContent = first ? 'ตั้งรหัส 4–6 หลัก ไว้ใช้เข้าศูนย์ควบคุมครั้งต่อไป' : 'รหัส 4–6 หลัก';
     $('pinIn2').hidden = !first; $('pinGo').textContent = first ? 'ตั้งรหัสและเข้าสู่ระบบ' : 'เข้าสู่ระบบ'; };
-  if (S.config === null){ $('pinTitle').textContent = 'กำลังเชื่อมต่อ…'; const w = setInterval(() => { if (S.config !== null){ clearInterval(w); setNew(); } }, 300); }
+  if (S.config === null){ $('pinTitle').textContent = 'กำลังเชื่อมต่อ…'; $('pinHelp').textContent = authErr || 'รอสักครู่';
+    const w = setInterval(() => { if (S.config !== null){ clearInterval(w); setNew(); } else if (authErr) $('pinHelp').textContent = authErr; }, 500); }
   else setNew();
   setTimeout(() => $('pinIn').focus(), 100);
 }
