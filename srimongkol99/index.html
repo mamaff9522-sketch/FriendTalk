@@ -323,7 +323,7 @@
           <div class="card" id="aList"></div>
         </div>
         <div class="card pad live">
-          <b class="sec">เหตุการณ์ล่าสุด (Live Event)</b>
+          <div class="row between" style="flex-wrap:wrap;gap:6px"><b class="sec">เหตุการณ์ล่าสุด (Live Event)</b><span class="pinchip" id="livePin" hidden></span></div>
           <ul class="tl tl-live" id="liveList"></ul>
           <button class="link" data-at="ev">ดูประวัติทั้งหมด ›</button>
         </div>
@@ -347,7 +347,10 @@
         <div class="stack" id="fleetList"></div>
       </div>
       <div id="atJobs" class="card" hidden></div>
-      <div id="atEv" class="card pad" hidden><ul class="tl" id="evList"></ul></div>
+      <div id="atEv" class="card pad" hidden>
+        <div class="row between" style="flex-wrap:wrap;gap:6px;margin-bottom:4px"><b class="sec" id="evTitle">ประวัติเหตุการณ์ (ทุกคัน)</b><span class="pinchip" id="evPin" hidden></span></div>
+        <ul class="tl" id="evList"></ul>
+      </div>
 
       <div id="atDone" class="stack" hidden>
         <div class="card pad stack">
