@@ -86,6 +86,24 @@ public class TrackService extends Service implements LocationListener {
     private boolean moving = false;
     private long liveMs = 5_000L;   // write interval while driving ("real time")
     private Boolean flaggedMock = null, flaggedOff = null;
+    private static final int NOTIF_GPSOFF = 4;
+    private final android.content.BroadcastReceiver providersChanged = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            checkGpsOff();
+        }
+    };
+    /** While GPS is off: sound the alarm every minute until the driver turns it back on. */
+    private final Runnable gpsOffAlarm = new Runnable() {
+        @Override
+        public void run() {
+            if (!Boolean.TRUE.equals(flaggedOff)) return;
+            showGpsOffNotification();
+            vibrate(true);
+            if (!MainActivity.foreground) Loud.ring(TrackService.this, 8_000L);
+            main.postDelayed(this, 60_000L);
+        }
+    };
     private long lastMockWrite = 0;
 
     private long lastUpdateCheck = 0;
@@ -121,6 +139,11 @@ public class TrackService extends Service implements LocationListener {
         sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         makeChannels();
+        try {
+            ContextCompat.registerReceiver(this, providersChanged,
+                    new android.content.IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED);
+        } catch (Exception ignored) {
+        }
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sm99:track");
     }
@@ -292,10 +315,19 @@ public class TrackService extends Service implements LocationListener {
         boolean changed = flaggedOff != null;
         flaggedOff = off;
         writeFlag("gpsOff", off, System.currentTimeMillis());
-        if (off) addEvent("gpsoff", "คนขับปิด GPS / ปิดตำแหน่งของมือถือ");
-        else if (changed) {
-            addEvent("gpsreal", "เปิด GPS กลับมาแล้ว");
-            startLocation();
+        main.removeCallbacks(gpsOffAlarm);
+        if (off) {
+            addEvent("gpsoff", "คนขับปิด GPS / ปิดตำแหน่งของมือถือ");
+            main.post(gpsOffAlarm);
+        } else {
+            try {
+                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(NOTIF_GPSOFF);
+            } catch (Exception ignored) {
+            }
+            if (changed) {
+                addEvent("gpsreal", "เปิด GPS กลับมาแล้ว");
+                startLocation();
+            }
         }
     }
 
@@ -487,6 +519,27 @@ public class TrackService extends Service implements LocationListener {
         nm.createNotificationChannel(c);
     }
 
+    private void showGpsOffNotification() {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent settings = PendingIntent.getActivity(this, 4, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification n = new NotificationCompat.Builder(this, CH_CMD)
+                    .setSmallIcon(R.drawable.ic_stat)
+                    .setContentTitle("⚠ ต้องเปิด GPS ตลอดเวลา")
+                    .setContentText("GPS ของมือถือถูกปิด ระบบแจ้งแอดมินแล้ว แตะเพื่อเปิด GPS")
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setColor(0xFFE0352B)
+                    .setOngoing(true)
+                    .setContentIntent(settings)
+                    .setFullScreenIntent(openApp(), true)
+                    .build();
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTIF_GPSOFF, n);
+        } catch (Exception ignored) {
+        }
+    }
+
     private PendingIntent openApp() {
         Intent i = new Intent(this, MainActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -590,6 +643,11 @@ public class TrackService extends Service implements LocationListener {
     public void onDestroy() {
         running = false;
         main.removeCallbacks(poll);
+        main.removeCallbacks(gpsOffAlarm);
+        try {
+            unregisterReceiver(providersChanged);
+        } catch (Exception ignored) {
+        }
         try {
             lm.removeUpdates(this);
         } catch (Exception ignored) {

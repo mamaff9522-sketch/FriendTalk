@@ -323,6 +323,10 @@ textarea.input{min-height:84px;resize:vertical}
 .rep .st{display:inline-block;background:#e4ecfb;color:var(--navy);font-weight:700;font-size:13px;border-radius:8px;padding:2px 8px}
 .rep a{color:var(--blue);font-weight:700;font-size:13px;text-decoration:none}
 
+.gps-lock{z-index:90;background:rgba(120,10,10,.88)}
+.lock-ic{width:64px!important;height:64px!important;color:var(--red);margin:0 auto}
+.setup-card{margin-top:10px;background:#fff6e5;border:1.5px solid #f3c77a;border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+
 /* app update */
 .bar{height:10px;border-radius:999px;background:var(--s2);overflow:hidden}
 .bar span{display:block;height:100%;width:0;background:var(--green);transition:width .2s}

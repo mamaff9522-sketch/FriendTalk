@@ -338,8 +338,8 @@ function startTracking(){
     }, () => {}, {enableHighAccuracy:true, maximumAge:15000});
   }
 }
-window.onAndroidPerms = () => { if (role==='driver' && myTruck) startTracking(); renderDriver(); };
-window.onAndroidResume = () => { checkUpdate(false); if (role==='driver' && myTruck){ startTracking(); checkCmd(); renderDriver(); } };
+window.onAndroidPerms = () => { if (role==='driver' && myTruck) startTracking(); renderDriver(); enforceGps(); };
+window.onAndroidResume = () => { checkUpdate(false); enforceGps(); if (role==='driver' && myTruck){ startTracking(); checkCmd(); renderDriver(); } };
 function haversine(a, b){ const R=6371000, r=x=>x*Math.PI/180; const dLat=r(b.lat-a.lat), dLng=r(b.lng-a.lng);
   const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
 function lastLoc(){
@@ -710,6 +710,29 @@ $('fuSave').onclick = async () => {
   } catch(e){ toast('บันทึกไม่สำเร็จ ลองใหม่'); }
   $('fuSave').disabled = false;
 };
+
+/* ===== driver: GPS must stay on while logged in ===== */
+function enforceGps(){
+  if (!A || role !== 'driver' || !myTruck || $('scrDriver').hidden){ $('gpsLock').hidden = true; return; }
+  const perm = !!call('hasLocation'), on = A.isGpsEnabled ? !!call('isGpsEnabled') : true;
+  const locked = !perm || !on;
+  $('gpsLock').hidden = !locked;
+  if (locked){
+    $('gpsLockMsg').textContent = !perm ? 'แอปยังไม่ได้รับอนุญาตให้ใช้ตำแหน่ง ต้องกด “อนุญาต” ก่อนจึงใช้งานได้' : 'GPS ของมือถือถูกปิด แอปใช้งานไม่ได้จนกว่าจะเปิด GPS และระบบได้แจ้งแอดมินแล้ว';
+    $('gpsLockGo').textContent = !perm ? 'อนุญาตตำแหน่ง' : 'เปิด GPS ตอนนี้';
+    paintIcons($('gpsLock'));
+  }
+  // one-time setup so tracking survives screen-off, battery saver and reboots
+  const bgOk = A.hasBackgroundLocation ? !!call('hasBackgroundLocation') : true, batOk = A.ignoresBattery ? !!call('ignoresBattery') : true;
+  $('setBg').hidden = bgOk; $('setBat').hidden = batOk; $('setupCard').hidden = bgOk && batOk;
+  if ($('pfBgSt')){ $('pfBgSt').textContent = bgOk ? 'เรียบร้อย' : 'ยังไม่ได้ตั้ง'; $('pfBgSt').style.color = bgOk ? 'var(--green)' : 'var(--red)';
+    $('pfBatSt').textContent = batOk ? 'เรียบร้อย' : 'ยังไม่ได้ตั้ง'; $('pfBatSt').style.color = batOk ? 'var(--green)' : 'var(--red)'; }
+}
+$('gpsLockGo').onclick = () => { if (!call('hasLocation')) call('askLocation'); else call('openLocationSettings'); };
+const askBg = () => { toast('เลือก “อนุญาตตลอดเวลา” แล้วกดย้อนกลับมา'); call('askBackgroundLocation'); };
+const askBat = () => { toast('กด “อนุญาต” แล้วกลับมาที่แอป'); call('askIgnoreBattery'); };
+$('setBg').onclick = askBg; $('pfBg').onclick = askBg; $('setBat').onclick = askBat; $('pfBat').onclick = askBat;
+setInterval(enforceGps, 2000);
 
 /* ===== driver: status report (real GPS only) ===== */
 let rpStatus = '';
@@ -1593,6 +1616,7 @@ function paintVersion(){ const v = call('appVersion') || ''; document.querySelec
 
 /* Android back button */
 window.onAndroidBack = () => {
+  if (!$('gpsLock').hidden) return true;   // cannot be dismissed until GPS is on
   if (!$('photoOv').hidden){ $('photoOv').hidden = true; return true; }
   if (!$('updOv').hidden){ $('updLater').click(); return true; }
   if (!$('asgOv').hidden){ $('asgClose').click(); return true; }

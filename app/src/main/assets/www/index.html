@@ -66,6 +66,11 @@
         <div class="dmap" id="dMap"></div>
       </div>
 
+      <div class="setup-card" id="setupCard" hidden>
+        <b>⚙ ตั้งค่าให้ GPS ทำงานตลอด (ทำครั้งเดียว)</b>
+        <button class="btn btn-sm btn-orange" id="setBg" hidden>อนุญาตตำแหน่ง “ตลอดเวลา”</button>
+        <button class="btn btn-sm btn-orange" id="setBat" hidden>ไม่ให้มือถือปิดแอปเพื่อประหยัดแบต</button>
+      </div>
       <div class="job-strip" id="jobStrip">
         <div class="route grow" id="jobRoute">
           <div class="rt"><span class="rt-dot o"></span><div><div class="small muted">ต้นทาง</div><b id="jobOrigin">–</b></div></div>
@@ -223,6 +228,8 @@
       </div>
       <div class="card list" style="margin-top:12px">
         <div class="li"><i data-i="pin"></i><span class="grow">GPS ติดตามรถ</span><b id="pfGps">–</b></div>
+        <button class="li" id="pfBg"><i data-i="gps"></i><span class="grow">อนุญาตตำแหน่ง “ตลอดเวลา”</span><b id="pfBgSt" class="small"></b></button>
+        <button class="li" id="pfBat"><i data-i="sun"></i><span class="grow">ไม่ให้ระบบปิดแอปเพื่อประหยัดแบต</span><b id="pfBatSt" class="small"></b></button>
         <label class="li"><i data-i="sun"></i><span class="grow">เปิดหน้าจอค้างไว้</span><input type="checkbox" id="pfScreen" class="sw"></label>
                 <button class="li" data-updcheck="1"><i data-i="swap"></i><span class="grow">ตรวจสอบอัปเดตแอป</span><b class="small muted appver"></b></button>
         <button class="li" id="pfLogout"><i data-i="logout"></i><span class="grow">ออกจากระบบ</span><i data-i="chev"></i></button>
@@ -479,6 +486,17 @@
     <div class="row between"><b class="sec" style="font-size:18px">รายละเอียดงาน</b><button class="btn btn-ghost btn-sm" id="jobClose">ปิด</button></div>
     <div id="jobBody"></div>
     <div class="grid2"><button class="btn btn-green" id="jobLine">ส่งเข้า LINE</button><button class="btn btn-navy" id="jobCopy">คัดลอก</button></div>
+  </div>
+</div>
+
+<!-- driver: GPS must stay on -->
+<div class="ov gps-lock" id="gpsLock" hidden>
+  <div class="card pad stack" style="width:100%;max-width:360px;text-align:center">
+    <i data-i="gps" class="lock-ic"></i>
+    <b style="font-size:21px;color:var(--red)">ต้องเปิด GPS ตลอดเวลา</b>
+    <p class="muted" style="margin:0" id="gpsLockMsg">GPS ของมือถือถูกปิด แอปใช้งานไม่ได้จนกว่าจะเปิด GPS และระบบได้แจ้งแอดมินแล้ว</p>
+    <button class="btn btn-red btn-lg btn-block" id="gpsLockGo">เปิด GPS ตอนนี้</button>
+    <p class="small muted" style="margin:0">เปิดแล้วกดย้อนกลับมาที่แอป หน้านี้จะหายไปเอง</p>
   </div>
 </div>
 

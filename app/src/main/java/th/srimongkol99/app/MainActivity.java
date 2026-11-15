@@ -352,6 +352,65 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean isGpsEnabled() {
+            try {
+                android.location.LocationManager lm = (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+                return lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER);
+            } catch (Exception e) {
+                return true;
+            }
+        }
+
+        @JavascriptInterface
+        public void openLocationSettings() {
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean hasBackgroundLocation() {
+            return Build.VERSION.SDK_INT < 29 || hasPerm(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        }
+
+        @JavascriptInterface
+        public void askBackgroundLocation() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 29) requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQ_PERMS);
+            });
+        }
+
+        @JavascriptInterface
+        public boolean ignoresBattery() {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                return pm.isIgnoringBatteryOptimizations(getPackageName());
+            } catch (Exception e) {
+                return true;
+            }
+        }
+
+        @JavascriptInterface
+        @SuppressWarnings("BatteryLife")
+        public void askIgnoreBattery() {
+            runOnUiThread(() -> {
+                try {
+                    Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Exception e) {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
         public boolean hasLocation() {
             return hasPerm(Manifest.permission.ACCESS_FINE_LOCATION);
         }
