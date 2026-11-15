@@ -130,7 +130,7 @@ const EV = {
   delay:{t:'แจ้งเหตุล่าช้า', i:'warn', bg:'#e0352b'},
   ring:{t:'แอดมินกดกริ่ง', i:'bell', bg:'#f07d18'},
   announce:{t:'แอดมินประกาศเสียง', i:'mic', bg:'#1f5fd6'},
-  ack:{t:'คนขับรับทราบกริ่ง', i:'okc', bg:'#1f9d50'},
+  ack:{t:'✅ คนขับรับทราบแล้ว', i:'okc', bg:'#1f9d50'},
   fuel:{t:'เติมน้ำมัน', i:'fuel', bg:'#0f7a78'},
   gpsmock:{t:'⚠ ตรวจพบ GPS ปลอม', i:'warn', bg:'#e0352b'},
   gpsoff:{t:'⚠ คนขับปิด GPS', i:'warn', bg:'#e0352b'},
@@ -210,7 +210,8 @@ function startData(){
     if (role==='driver' && myTruck && prev !== undefined && prev !== S.config.liveSec) startTracking();
     renderAll(); }, () => { S.config = {}; }));
   unsub.push(db.collection('events').orderBy('at','desc').limit(120).onSnapshot(snap => {
-    S.events = snap.docs.map(d => Object.assign({id:d.id}, d.data())); renderAll();
+    S.events = snap.docs.map(d => Object.assign({id:d.id}, d.data()));
+    notifyAcks(); renderAll();
   }, () => {}));
   if (role==='driver' && myTruck) driverStart();
 }
@@ -844,7 +845,8 @@ function showCmd(c, alreadyRinging){
   $('cmdBell').hidden = !ring; $('cmdMic').hidden = ring;
   $('cmdMsg').hidden = ring || !c.text; $('cmdMsg').textContent = c.text || '';
   $('cmdPill').textContent = 'ไม่ต้องกดรับ';
-  $('cmdOk').textContent = ring ? 'รับทราบ' : 'ปิด';
+  $('cmdOk').textContent = 'รับทราบ';
+  $('cmdOv').dataset.nonce = c.nonce || ''; $('cmdOv').dataset.acked = '';
   $('cmdOv').hidden = false; $('cmdOv').dataset.type = c.type;
   try { navigator.vibrate && navigator.vibrate(ring ? [500,250,500,250,500] : [200]); } catch(e){}
   clearTimeout(ovTimer);
@@ -858,7 +860,14 @@ function showCmd(c, alreadyRinging){
   }
 }
 function closeCmd(){ $('cmdOv').hidden = true; clearTimeout(ovTimer); ovTimer=null; clearInterval(beepTimer); call('stopRing'); try{ audioEl && audioEl.pause(); }catch(e){} }
-$('cmdOk').onclick = () => { const ring = $('cmdOv').dataset.type === 'ring'; closeCmd(); if (ring && myTruck) addEvent('ack', ''); };
+function ackCmd(){
+  const ov = $('cmdOv'); if (!myTruck || ov.dataset.acked === '1') return;
+  ov.dataset.acked = '1';
+  const ring = ov.dataset.type === 'ring';
+  addEvent('ack', ring ? 'รับทราบกริ่ง' : 'รับทราบเสียงประกาศ');
+  db.doc('commands/'+myTruck).set({ackAt: Date.now(), ackNonce: ov.dataset.nonce || ''}, {merge: true}).catch(()=>{});
+}
+$('cmdOk').onclick = () => { ackCmd(); closeCmd(); toast('แจ้งแอดมินว่ารับทราบแล้ว'); };
 function beepLoop(){
   try { actx = actx || new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); } catch(e){ return; }
   const beep = () => { for (let i=0;i<4;i++){ tone(988, i*.32, .14); tone(784, i*.32+.16, .14); } };
@@ -1049,6 +1058,7 @@ function renderSel(){
       <button class="cbtn cb-mic" id="cMic">${ico('mic')}พูดผ่านไมค์<small>(กดค้างเพื่อพูด)</small></button>
       <a class="cbtn cb-call" id="cCall" href="${t.phone?telHref(t.phone):'#'}">${ico('phone')}โทร<small>${esc(t.phone||'ไม่มีเบอร์')}</small></a>
     </div>
+    ${ackStatus(id)}
     <div class="mic-note">${ico('mic')}<span>ไมค์จากแอดมิน : พูดเสียงไปยังมือถือคนขับได้ทันที <em>ไม่ต้องกดรับ</em> (แบบทางเดียว)</span></div>
     <div class="say"><input class="input" id="sayTxt" placeholder="หรือพิมพ์ข้อความ ให้มือถือคนขับอ่านออกเสียง"><button class="btn btn-navy" id="saySend">${ico('speak')}ส่ง</button></div>`;
   bindMic();
@@ -1299,12 +1309,36 @@ function renderStatusPage(key, sorted){
       + (t.phone ? `<a class="btn btn-green" href="${telHref(t.phone)}" data-tel="${esc(t.phone)}">${ico('phone')}โทร</a>` : '');
     return `<div class="stc${al?' alert':''}">
       <div class="top"><span class="dot ${on?'on':''}"></span><div class="grow"><b class="pl">${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span>${route?`<div class="small">${route}</div>`:''}</div>${al?`<span class="chip c-red">${esc(alertText(t))}</span>`:`<span class="chip ${on?'c-green':''}">${on?'ออนไลน์':'ออฟไลน์'}</span>`}</div>
-      <div class="body">${facts}</div><div class="acts">${acts}</div></div>`; }).join('');
+      <div class="body">${facts}</div>${ackStatus(id) ? `<div style="padding:0 0 8px">${ackStatus(id)}</div>` : ''}<div class="acts">${acts}</div></div>`; }).join('');
 }
 document.addEventListener('click', e => {
   const r = e.target.closest('[data-ring]'); if (r){ sendCmd(r.dataset.ring, {type:'ring'}); return; }
   const tl = e.target.closest('[data-tel]'); if (tl && A){ e.preventDefault(); call('openUrl', telHref(tl.dataset.tel)); }
 });
+
+/* ===== admin: tell the admin when a driver taps "รับทราบ" ===== */
+const seenAcks = new Set(); let acksReady = false;
+function notifyAcks(){
+  if (role !== 'admin') return;
+  const acks = S.events.filter(e => e.type === 'ack');
+  if (!acksReady){ acks.forEach(e => seenAcks.add(e.id)); acksReady = true; return; }
+  acks.filter(e => !seenAcks.has(e.id)).reverse().forEach(e => {
+    seenAcks.add(e.id);
+    if (Date.now() - (e.at||0) > 10*60000) return;
+    try { navigator.vibrate && navigator.vibrate([150,80,150]); } catch(err){}
+    try { actx = actx || new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); tone(1047,0,.12); tone(1319,.14,.2); } catch(err){}
+    toast(`✅ ${e.plate} (${e.driver}) ${e.text || 'รับทราบแล้ว'} ${fmtT(e.at)}`);
+  });
+}
+/* last ring/announce and whether the driver has acknowledged it */
+function ackStatus(id){
+  const sent = S.events.find(e => e.truck === id && (e.type === 'ring' || e.type === 'announce'));
+  if (!sent) return '';
+  const ack = S.events.find(e => e.truck === id && e.type === 'ack' && e.at >= sent.at);
+  const what = sent.type === 'ring' ? 'กดกริ่ง' : 'ประกาศเสียง';
+  return ack ? `<div class="ackline ok">${ico('okc')}${what} ${fmtT(sent.at)} · <b>คนขับรับทราบแล้ว ${fmtT(ack.at)}</b></div>`
+             : `<div class="ackline wait">${ico('clock')}${what} ${fmtT(sent.at)} · <b>รอคนขับกดรับทราบ…</b></div>`;
+}
 
 /* ===== find / pick a truck ===== */
 const normPlate = v => String(v||'').toLowerCase().replace(/[\s\-–.·]/g, '');
