@@ -204,6 +204,15 @@ public class TrackService extends Service implements LocationListener {
         }
     }
 
+    private boolean fastGps = true;
+
+    /** Driving: fast GPS for real-time tracking. Parked: slower GPS to save battery. */
+    private void setGpsRate(boolean fast) {
+        if (fast == fastGps) return;
+        fastGps = fast;
+        startLocation();
+    }
+
     private void startLocation() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) return;
@@ -212,7 +221,7 @@ public class TrackService extends Service implements LocationListener {
         } catch (Exception ignored) {
         }
         try {
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, Math.min(2_000L, liveMs), 0f, this, Looper.getMainLooper());
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, fastGps ? Math.min(2_000L, liveMs) : 10_000L, 0f, this, Looper.getMainLooper());
         } catch (Exception ignored) {
         }
         try {
@@ -271,13 +280,16 @@ public class TrackService extends Service implements LocationListener {
             lastMoveAt = now;
             boolean started = !moving;
             moving = true;
+            setGpsRate(true);
             boolean movedSinceWrite = lastWritten == null || lastWritten.distanceTo(l) >= 8f;
             if (started || (now - lastWrite >= liveMs && movedSinceWrite)) write();
         } else if (moving && now - lastMoveAt > STOP_AFTER_MS) {
             moving = false;
+            setGpsRate(false);
             write();
-        } else if (now - lastWrite > HEARTBEAT_MS) {
-            write();
+        } else {
+            if (!moving && now - lastMoveAt > STOP_AFTER_MS) setGpsRate(false);
+            if (now - lastWrite > HEARTBEAT_MS) write();
         }
     }
 
@@ -419,7 +431,10 @@ public class TrackService extends Service implements LocationListener {
 
     private void checkCommand() {
         try {
-            String res = http("GET", docUrl("commands/" + truckId), null, true);
+            // small fields only: the voice clip can be ~1 MB and must not be downloaded on every poll
+            String res = http("GET", docUrl("commands/" + truckId)
+                    + "?mask.fieldPaths=nonce&mask.fieldPaths=at&mask.fieldPaths=truck&mask.fieldPaths=device"
+                    + "&mask.fieldPaths=type&mask.fieldPaths=text", null, true);
             if (res == null) return;
             JSONObject f = new JSONObject(res).optJSONObject("fields");
             if (f == null) return;
@@ -438,7 +453,15 @@ public class TrackService extends Service implements LocationListener {
             sp.edit().putString("lastNonce", nonce).apply();
             final String type = str(f, "type");
             final String text = str(f, "text");
-            final String audio = str(f, "audio");
+            String clip = "";
+            if ("announce".equals(type)) {
+                String full = http("GET", docUrl("commands/" + truckId) + "?mask.fieldPaths=audio", null, true);
+                if (full != null) {
+                    JSONObject ff = new JSONObject(full).optJSONObject("fields");
+                    if (ff != null) clip = str(ff, "audio");
+                }
+            }
+            final String audio = clip;
             main.post(() -> handleCommand(type, text, audio));
         } catch (Exception ignored) {
         }

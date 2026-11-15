@@ -68,7 +68,7 @@ const A = window.Android || null;
 const call = (fn, ...a) => { try { return A && A[fn] ? A[fn](...a) : undefined; } catch(e){ return undefined; } };
 const telHref = p => 'tel:' + String(p||'').replace(/[^\d+]/g,'');
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true, 3000); }
-function show(id){ ['scrStart','scrPick','scrDriver','scrPin','scrAdmin','scrSetup'].forEach(s => $(s).hidden = s!==id); }
+function show(id){ ['scrStart','scrPick','scrDriver','scrPin','scrAdmin','scrSetup'].forEach(s => $(s).hidden = s!==id); try { listenByRole(); } catch(e){} }
 const rid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /* read coordinates from a Google Maps link or "lat, lng" text */
@@ -199,30 +199,57 @@ function signIn(){
 let dataStarted = false;
 function startData(){
   if (dataStarted) return; dataStarted = true;
-  unsub.push(db.collection('trucks').onSnapshot({includeMetadataChanges:true}, snap => {
-    const next = {}; snap.forEach(d => next[d.id] = d.data());
-    S.trucks = next; S.connected = !snap.metadata.fromCache;
-    if (role==='driver' && myTruck && !snap.metadata.fromCache){
-      const mt = S.trucks[myTruck];
-      if (!mt) driverLogout('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน');
-      else if ((mt.loginVer||0) !== ls.get('loginVer', 0)) driverLogout('แอดมินเปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่');
-      else if (mt.deviceId && mt.deviceId !== DEVICE) driverLogout('บัญชีนี้เข้าสู่ระบบในมือถือเครื่องอื่นแล้ว');
-    }
-    renderAll();
-  }, () => {}));
+  listenByRole();
   unsub.push(db.collection('places').onSnapshot(snap => { const p={}; snap.forEach(d => p[d.id]=d.data()); S.places=p; renderAll(); }, () => {}));
   unsub.push(db.doc('config/main').onSnapshot(d => { const prev = S.config && S.config.liveSec; S.config = d.exists ? d.data() : {}; thr = +(S.config.thr||30);
     if (role==='driver' && myTruck && prev !== undefined && prev !== S.config.liveSec) startTracking();
     renderAll(); }, () => { S.config = {}; }));
-  unsub.push(db.collection('events').orderBy('at','desc').limit(120).onSnapshot(snap => {
-    S.events = snap.docs.map(d => Object.assign({id:d.id}, d.data()));
-    notifyAcks(); renderAll();
-  }, () => {}));
   if (role==='driver' && myTruck) driverStart();
 }
+/* Data each role needs. Drivers listen to their own truck only (all trucks' GPS updates would
+   multiply the database reads by the number of drivers); the admin listens to every truck. */
+let trucksUnsub = null, eventsUnsub = null, listenMode = '';
+function applyTrucks(next, fromCache){
+  S.trucks = next; S.connected = !fromCache;
+  if (role==='driver' && myTruck && !fromCache){
+    const mt = S.trucks[myTruck];
+    if (!mt) driverLogout('บัญชีนี้ถูกลบแล้ว ติดต่อแอดมิน');
+    else if ((mt.loginVer||0) !== ls.get('loginVer', 0)) driverLogout('แอดมินเปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่');
+    else if (mt.deviceId && mt.deviceId !== DEVICE) driverLogout('บัญชีนี้เข้าสู่ระบบในมือถือเครื่องอื่นแล้ว');
+  }
+  renderAll();
+}
+function listenByRole(){
+  if (!db || !user) return;
+  const mode = role === 'admin' ? 'admin' : (role === 'driver' && myTruck ? 'driver:' + myTruck : '');
+  if (mode === listenMode) return;
+  listenMode = mode;
+  if (trucksUnsub){ trucksUnsub(); trucksUnsub = null; }
+  if (eventsUnsub){ eventsUnsub(); eventsUnsub = null; }
+  if (mode === 'admin'){
+    trucksUnsub = db.collection('trucks').onSnapshot({includeMetadataChanges:true}, snap => {
+      const next = {}; snap.forEach(d => next[d.id] = d.data()); applyTrucks(next, snap.metadata.fromCache);
+    }, () => {});
+    eventsUnsub = db.collection('events').orderBy('at','desc').limit(120).onSnapshot(snap => {
+      S.events = snap.docs.map(d => Object.assign({id:d.id}, d.data())); notifyAcks(); renderAll();
+    }, () => {});
+  } else if (mode.startsWith('driver:')){
+    const id = myTruck;
+    trucksUnsub = db.doc('trucks/'+id).onSnapshot({includeMetadataChanges:true}, d => {
+      applyTrucks(d.exists ? {[id]: d.data()} : {}, d.metadata.fromCache);
+    }, () => {});
+    S.events = [];
+  } else { S.trucks = {}; S.events = []; }
+}
+let renderTimer = null;
 function renderAll(){
-  if (role==='driver'){ if (!$('scrPick').hidden) renderPick(); else renderDriver(); }
-  else if (role==='admin' && !$('scrAdmin').hidden) renderAdmin();
+  // data updates can arrive many times a second with lots of trucks: redraw at most ~3 times/second
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    if (role==='driver'){ if (!$('scrPick').hidden) renderPick(); else renderDriver(); }
+    else if (role==='admin' && !$('scrAdmin').hidden) renderAdmin();
+  }, 300);
 }
 
 function route(){
@@ -316,7 +343,7 @@ function driverStart(){
     S.myJobs.forEach(j => jobsById[j.id] = j);
     if (dScreen==='hist') renderDriver();
   }, () => {});
-  myEvUnsub = db.collection('events').where('truck','==',myTruck).limit(800).onSnapshot(snap => {
+  myEvUnsub = db.collection('events').where('truck','==',myTruck).limit(250).onSnapshot(snap => {
     S.myEvents = snap.docs.map(d => Object.assign({id:d.id}, d.data())).sort((a,b)=>b.at-a.at); if (dScreen==='hist') renderDriver();
   }, () => {});
   // accounts logged in before phone-binding existed: bind to this phone now
@@ -1044,6 +1071,10 @@ function renderAdmin(){
 }
 
 function renderSel(){
+  const card = $('selCard');
+  const busy = (rec && rec.state === 'recording') || (document.activeElement && card.contains(document.activeElement) && document.activeElement.tagName === 'INPUT');
+  if (busy && card.dataset.truck === String(selTruck)) return;   // keep the mic button / typed text intact
+  card.dataset.truck = String(selTruck);
   const id = selTruck, t = id && S.trucks[id];
   if (!t){ $('selCard').innerHTML = `<div class="empty">เลือกรถจากแผนที่หรือรายการ</div>`; return; }
   const al = isAlert(t), st = ST[t.status]||ST.idle;
@@ -1203,7 +1234,7 @@ function startDoneListener(){
   doneUnsub = db.collection('jobs').where('doneAt', '>=', cutoff).orderBy('doneAt', 'desc').limit(1000).onSnapshot(snap => {
     doneJobs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.doneAt - a.doneAt);
     doneJobs.forEach(j => jobsById[j.id] = j);
-    if (aTab === 'done') renderDone();
+    renderAll();
   }, () => {});
 }
 function filteredDone(){
@@ -1215,7 +1246,7 @@ function renderDone(){
   const sel = $('dnTruck').value;
   const opts = Object.entries(S.trucks).sort((a,b)=>(a[1].driver||'').localeCompare(b[1].driver||'','th'))
     .map(([id,t]) => `<option value="${id}">${esc(t.driver)} · ${esc(t.plate)}</option>`).join('');
-  $('dnTruck').innerHTML = `<option value="">ทั้งหมด</option>${opts}`; $('dnTruck').value = sel;
+  if ($('dnTruck').dataset.sig !== opts){ $('dnTruck').dataset.sig = opts; $('dnTruck').innerHTML = `<option value="">ทั้งหมด</option>${opts}`; $('dnTruck').value = sel; }
   const list = filteredDone();
   const timed = list.filter(j => j.onTime !== null && j.onTime !== undefined), ok = timed.filter(j => j.onTime).length;
   const L = list.reduce((a,j)=>a+(+j.fuelL||0),0), B = list.reduce((a,j)=>a+(+j.fuelB||0),0);
@@ -1241,9 +1272,12 @@ async function cleanupOld(){
   const cutoff = Date.now() - KEEP_DAYS*864e5;
   const purge = async (col, field) => {
     try {
-      const snap = await db.collection(col).where(field, '<', cutoff).limit(300).get();
-      if (snap.empty) return;
-      const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
+      for (let i = 0; i < 20; i++){            // up to 8,000 old documents per collection per run
+        const snap = await db.collection(col).where(field, '<', cutoff).limit(400).get();
+        if (snap.empty) return;
+        const batch = db.batch(); snap.forEach(d => batch.delete(d.ref)); await batch.commit();
+        if (snap.size < 400) return;
+      }
     } catch(e){}
   };
   await purge('jobs', 'doneAt'); await purge('events', 'at'); await purge('photos', 'at');
@@ -1389,7 +1423,7 @@ function setPin(id){
   if (pinUnsub){ pinUnsub(); pinUnsub = null; }
   if (pinTruck && db) pinUnsub = db.collection('events').where('truck', '==', pinTruck).limit(150).onSnapshot(snap => {
     pinEvents = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.at - a.at);
-    if (!$('scrAdmin').hidden) renderAdmin();
+    renderAll();
   }, () => {});
 }
 function clearPin(){ setPin(null); $('tsIn').value = ''; $('tsClr').hidden = true; renderAdmin(); }
@@ -1446,15 +1480,15 @@ function startReports(){
       toast(`📍 ${r.plate}: ${r.status} → ${r.destName}`);
     }
     repReady = true;
-    if (!$('scrAdmin').hidden) renderAdmin();
+    renderAll();
   }, () => {});
 }
 const repSeen = () => ls.get('repSeen', 0);
 function renderReports(){
   const sel = $('rpTruck').value;
-  $('rpTruck').innerHTML = `<option value="">ทั้งหมด</option>` + Object.entries(S.trucks).sort((a,b)=>(a[1].plate||'').localeCompare(b[1].plate||'','th'))
+  const ropts = Object.entries(S.trucks).sort((a,b)=>(a[1].plate||'').localeCompare(b[1].plate||'','th'))
     .map(([id,t]) => `<option value="${id}">${esc(t.plate)} · ${esc(t.driver)}</option>`).join('');
-  $('rpTruck').value = sel;
+  if ($('rpTruck').dataset.sig !== ropts){ $('rpTruck').dataset.sig = ropts; $('rpTruck').innerHTML = `<option value="">ทั้งหมด</option>` + ropts; $('rpTruck').value = sel; }
   const d = new Date(); $('rpDate').textContent = `${d.getDate()} ${TH_M[d.getMonth()]} ${d.getFullYear()+543}`;
   const list = reports.filter(r => r.at >= todayStart() && (!sel || r.truck === sel)), seen = repSeen();
   $('repList').innerHTML = list.length ? list.map(r => `<div class="rep${r.at > seen ? ' new' : ''}">
