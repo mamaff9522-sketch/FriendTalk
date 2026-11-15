@@ -158,6 +158,11 @@ const seenAlerts = new Set();
 /* ================= boot ================= */
 function boot(){
   paintIcons();
+  // on a computer (web browser) only the admin control centre is available: drivers must use the phone app (real GPS)
+  if (!A){
+    $('goDriver').hidden = true; $('webNote').hidden = false;
+    if (role === 'driver'){ role = ''; ls.set('role', ''); }
+  }
   fbCfg = window.FIREBASE_CONFIG;
   if (!fbCfg || !window.firebase){ show('scrSetup'); return; }
   firebase.initializeApp(fbCfg);
