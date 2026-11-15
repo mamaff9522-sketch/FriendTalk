@@ -973,7 +973,7 @@ function updateAdminMap(sorted, onlyRotate){
     let m = aMarkers[id];
     if (!m){
       m = aMarkers[id] = new maplibregl.Marker({element: truckEl(), anchor:'center'}).setLngLat(ll(t)).addTo(aMap);
-      m.getElement().addEventListener('click', ev => { ev.stopPropagation(); selTruck = id; renderAdmin(); if (aFollow) followSel(true); });
+      m.getElement().addEventListener('click', ev => { ev.stopPropagation(); selTruck = id; setPin(id); renderAdmin(); if (aFollow) followSel(true); });
     } else if (!onlyRotate && (m._lat !== t.lat || m._lng !== t.lng)) glide(m, ll(t), Math.min(liveSec()*1000, 3000));
     m._lat = t.lat; m._lng = t.lng;
     paintTruck(m.getElement(), {color, heading: t.moving ? t.heading : (t.heading >= 0 ? t.heading : -1), bearing,
@@ -1014,7 +1014,8 @@ function renderAdmin(){
       const chip = isAlert(t) ? `<span class="chip c-red">${esc(alertText(t))}</span>` : `<span class="chip ${st.c}">${st.t}</span>`;
       return `<button class="trk" data-sel="${id}" aria-current="${id===selTruck}"><span class="dot ${online(t)?'on':''}"></span><div class="grow"><b>${esc(t.plate)}</b> <span class="small muted">· ${esc(t.driver)}</span><div class="small muted">${hasAssignedJob(t) ? esc((t.originName ? t.originName + ' → ' : '') + t.destName) : 'ยังไม่มีงาน'}</div></div>${chip}</button>`; }).join('')
       : `<div class="empty">ยังไม่มีรถ เพิ่มได้ที่เมนู “จัดการผู้ใช้งาน”</div>`;
-    $('liveList').innerHTML = feedHTML(S.events.slice(0,6), true) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
+    pinChip($('livePin'));
+    $('liveList').innerHTML = feedHTML(shownEvents().slice(0,6), !pinTruck) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
   }
   if (aTab==='al'){
     $('atAl').innerHTML = alerts.length ? alerts.map(id => { const t = S.trucks[id];
@@ -1028,7 +1029,8 @@ function renderAdmin(){
         return `<tr><td><b>${esc(t.plate)}</b><div class="small muted">${esc(t.driver)}</div></td><td><span class="chip ${st.c}">${st.t}</span>${isAlert(t)?`<div class="small" style="color:var(--red);font-weight:700">${esc(alertText(t))}</div>`:''}</td><td>${hasAssignedJob(t)?`${esc(t.originName||'–')} → <b>${esc(t.destName)}</b>`:'<span class="muted">ยังไม่มีงาน</span>'}</td><td>${t.etaAt?fmtDT(t.etaAt):'–'}${isLate(t)?'<div class="small" style="color:var(--red);font-weight:700">เลยเวลานัด</div>':''}</td><td class="small">${esc(fuelSumTxt(fuelOf(t))||'–')}</td><td><button class="btn btn-sm btn-orange" data-assign="${id}">${hasAssignedJob(t)?'แก้งาน':'มอบหมาย'}</button></td></tr>`; }).join('')
     }</tbody></table></div>` : `<div class="empty">ยังไม่มีรถ</div>`;
   }
-  if (aTab==='ev') $('evList').innerHTML = feedHTML(S.events, true) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
+  if (aTab==='ev'){ pinChip($('evPin')); $('evTitle').textContent = pinTruck && S.trucks[pinTruck] ? `ประวัติเหตุการณ์ · ${S.trucks[pinTruck].plate}` : 'ประวัติเหตุการณ์ (ทุกคัน)'; }
+  if (aTab==='ev') $('evList').innerHTML = feedHTML(shownEvents(), !pinTruck) || `<li class="empty" style="display:block">ยังไม่มีเหตุการณ์</li>`;
   if (aTab==='users'){
     fillNewAccount();
     $('uList').innerHTML = ids.length ? `<div class="pad"><b class="sec">รถและคนขับในระบบ (${ids.length})</b></div>` + sorted.map(id => { const t=S.trucks[id];
@@ -1070,8 +1072,8 @@ function renderSel(){
 }
 
 document.addEventListener('click', async e => {
-  const s = e.target.closest('[data-sel]'); if (s){ selTruck = s.dataset.sel; renderAdmin(); const t=S.trucks[selTruck]; if (aMap && t && t.lat!=null) aMap.easeTo({center: ll(t), duration: 800}); if (innerWidth<=820) $('selCard').scrollIntoView({behavior:'smooth', block:'start'}); return; }
-  const g = e.target.closest('[data-goto]'); if (g){ selTruck = g.dataset.goto; aTab='ov'; renderAdmin(); setTimeout(()=>{ if(!aMap) return; aMap.resize(); const t=S.trucks[selTruck]; if (t && t.lat!=null) aMap.flyTo({center: ll(t), zoom: 16, pitch: 60}); }, 60); return; }
+  const s = e.target.closest('[data-sel]'); if (s){ selTruck = s.dataset.sel; setPin(selTruck); renderAdmin(); const t=S.trucks[selTruck]; if (aMap && t && t.lat!=null) aMap.easeTo({center: ll(t), duration: 800}); if (innerWidth<=820) $('selCard').scrollIntoView({behavior:'smooth', block:'start'}); return; }
+  const g = e.target.closest('[data-goto]'); if (g){ selTruck = g.dataset.goto; setPin(selTruck); aTab='ov'; renderAdmin(); setTimeout(()=>{ if(!aMap) return; aMap.resize(); const t=S.trucks[selTruck]; if (t && t.lat!=null) aMap.flyTo({center: ll(t), zoom: 16, pitch: 60}); }, 60); return; }
   if (e.target.closest('#cRing')){ sendCmd(selTruck, {type:'ring'}); return; }
   if (e.target.closest('#saySend')){ const txt = $('sayTxt').value.trim(); if (!txt){ toast('พิมพ์ข้อความก่อน'); return; } sendCmd(selTruck, {type:'announce', text:txt}); $('sayTxt').value=''; return; }
   const c = e.target.closest('#cCall'); if (c){ const t = S.trucks[selTruck]; if (!t || !t.phone){ e.preventDefault(); toast('ยังไม่มีเบอร์คนขับ เพิ่มได้ที่ “จัดการผู้ใช้งาน”'); } else if (A){ e.preventDefault(); call('openUrl', telHref(t.phone)); } return; }
@@ -1378,9 +1380,30 @@ $('tsIn').addEventListener('input', renderTruckSearch);
 $('tsIn').addEventListener('focus', renderTruckSearch);
 $('tsIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ const m = truckMatches($('tsIn').value.trim()); if (m.length === 1) pickTruck(m[0][0]); } });
 $('tsAll').onclick = () => { $('tsRes').hidden ? renderTruckSearch() : closeTruckSearch(); };
-$('tsClr').onclick = () => { $('tsIn').value = ''; renderTruckSearch(); $('tsIn').focus(); };
+$('tsClr').onclick = () => { $('tsIn').value = ''; setPin(null); renderAdmin(); renderTruckSearch(); $('tsIn').focus(); };
+/* the truck the admin picked on purpose: event lists show only this truck */
+let pinTruck = null, pinEvents = [], pinUnsub = null;
+function setPin(id){
+  if (pinTruck === id) return;
+  pinTruck = id || null; pinEvents = [];
+  if (pinUnsub){ pinUnsub(); pinUnsub = null; }
+  if (pinTruck && db) pinUnsub = db.collection('events').where('truck', '==', pinTruck).limit(150).onSnapshot(snap => {
+    pinEvents = snap.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a,b) => b.at - a.at);
+    if (!$('scrAdmin').hidden) renderAdmin();
+  }, () => {});
+}
+function clearPin(){ setPin(null); $('tsIn').value = ''; $('tsClr').hidden = true; renderAdmin(); }
+function pinChip(el){
+  const t = pinTruck && S.trucks[pinTruck];
+  el.hidden = !t;
+  if (t) el.innerHTML = `เฉพาะ ${esc(t.plate)} <button data-unpin="1">ดูทุกคัน ✕</button>`;
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-unpin]')) clearPin(); });
+const shownEvents = () => pinTruck && S.trucks[pinTruck] ? pinEvents : S.events;
+
 function pickTruck(id){
   const t = S.trucks[id]; if (!t) return;
+  setPin(id);
   closeTruckSearch(); $('tsIn').value = t.plate; $('tsClr').hidden = false; $('tsIn').blur();
   selTruck = id; aTab = 'ov'; aFollow = false; renderAdmin();
   setTimeout(() => { if (aMap){ aMap.resize(); if (t.lat != null) aMap.flyTo({center: ll(t), zoom: 16, pitch: 60}); }
